@@ -28,12 +28,7 @@ final class DetailViewController: NSViewController, WKUIDelegate {
 	private lazy var regularWebViewController = createWebViewController()
 	private var searchWebViewController: DetailWebViewController?
 
-	private lazy var browserViewController: DetailBrowserViewController = {
-		let controller = DetailBrowserViewController()
-		controller.delegate = self
-		return controller
-	}()
-
+	private var browserViewController: DetailBrowserViewController?
 	private var isShowingBrowser = false
 
 	var windowState: DetailWindowState {
@@ -150,12 +145,17 @@ extension DetailViewController: DetailWebViewControllerDelegate {
 			return
 		}
 		statusBarView.mouseoverLink = nil
-		browserViewController.load(url)
-		containerView.contentView = browserViewController.view
-		isShowingBrowser = true
 
-		// Focusing the web view puts the browser VC in the responder chain so Esc (cancelOperation) returns to the article.
-		browserViewController.focusWebView()
+		let controller = DetailBrowserViewController()
+		controller.delegate = self
+		browserViewController = controller
+
+		// Assigning the view realizes it (loads the web view) before we load a URL,
+		// and puts the browser in the responder chain so Esc returns to the article.
+		containerView.contentView = controller.view
+		controller.load(url)
+		controller.focusWebView()
+		isShowingBrowser = true
 	}
 }
 
@@ -178,7 +178,8 @@ private extension DetailViewController {
 			return
 		}
 		isShowingBrowser = false
-		browserViewController.stopMediaPlayback()
+		browserViewController?.stopMediaPlayback()
+		browserViewController = nil
 		containerView.contentView = currentWebViewController.view
 	}
 

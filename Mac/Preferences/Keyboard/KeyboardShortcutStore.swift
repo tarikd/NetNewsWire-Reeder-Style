@@ -5,6 +5,12 @@ import RSCore
 
 	static let shared = KeyboardShortcutStore()
 
+	private let userDefaults: UserDefaults
+
+	init(userDefaults: UserDefaults = .standard) {
+		self.userDefaults = userDefaults
+	}
+
 	enum Context: String, CaseIterable {
 		case global, sidebar, timeline, detail
 		var plistName: String {
@@ -84,7 +90,7 @@ import RSCore
 	}
 
 	func restoreDefaults() {
-		UserDefaults.standard.removeObject(forKey: Self.defaultsKey)
+		userDefaults.removeObject(forKey: Self.defaultsKey)
 		invalidateAndNotify()
 	}
 
@@ -102,7 +108,7 @@ import RSCore
 
 	// Returns [action: KeyboardKey?] where a present nil means "unbound".
 	private func loadOverrides(for context: Context) -> [String: KeyboardKey??] {
-		guard let all = UserDefaults.standard.dictionary(forKey: Self.defaultsKey),
+		guard let all = userDefaults.dictionary(forKey: Self.defaultsKey),
 			  let contextDict = all[context.rawValue] as? [String: Any] else { return [:] }
 		var result: [String: KeyboardKey??] = [:]
 		for (action, value) in contextDict {
@@ -116,16 +122,16 @@ import RSCore
 	}
 
 	private func writeOverride(_ value: KeyboardKey??, forAction action: String, in context: Context) {
-		var all = UserDefaults.standard.dictionary(forKey: Self.defaultsKey) ?? [:]
+		var all = userDefaults.dictionary(forKey: Self.defaultsKey) ?? [:]
 		var contextDict = (all[context.rawValue] as? [String: Any]) ?? [:]
 		switch value {
 		case .some(.some(let key)):
 			contextDict[action] = KeyboardKeyCoder.dictionary(from: key)
 		default:
-			contextDict[action] = NSNull()
+			contextDict[action] = ["unbound": true]
 		}
 		all[context.rawValue] = contextDict
-		UserDefaults.standard.set(all, forKey: Self.defaultsKey)
+		userDefaults.set(all, forKey: Self.defaultsKey)
 	}
 
 	private func invalidateAndNotify() {

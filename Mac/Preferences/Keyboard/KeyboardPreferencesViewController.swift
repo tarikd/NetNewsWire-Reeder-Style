@@ -9,6 +9,12 @@
 import AppKit
 import RSCore
 
+/// A top-anchored document view for the scroll views (AppKit views are
+/// bottom-anchored by default, which pinned the rows to the bottom).
+private final class FlippedView: NSView {
+	override var isFlipped: Bool { true }
+}
+
 @MainActor final class KeyboardPreferencesViewController: NSViewController {
 
 	private let store = KeyboardShortcutStore.shared
@@ -98,12 +104,26 @@ import RSCore
 		rowStack.edgeInsets = NSEdgeInsets(top: 16, left: 20, bottom: 16, right: 20)
 		rowStacks[context] = rowStack
 
-		let documentView = NSView()
+		let documentView = FlippedView()   // flipped so rows lay out from the top, not the bottom
 		documentView.translatesAutoresizingMaskIntoConstraints = false
 		documentView.addSubview(rowStack)
 		scrollView.documentView = documentView
 
+		// The tab item's view must size itself to the tab. A plain NSView using
+		// autoresizing fills the tab content rect; the scroll view is then pinned
+		// inside it with constraints. (Putting the scroll view directly as the
+		// item view with translatesAutoresizingMaskIntoConstraints = false left it
+		// zero-sized on tabs that aren't shown first.)
+		let container = NSView(frame: NSRect(x: 0, y: 0, width: preferredWidth, height: 440.0))
+		container.autoresizingMask = [.width, .height]
+		container.addSubview(scrollView)
+
 		NSLayoutConstraint.activate([
+			scrollView.topAnchor.constraint(equalTo: container.topAnchor),
+			scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+			scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+			scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+
 			documentView.topAnchor.constraint(equalTo: rowStack.topAnchor),
 			documentView.bottomAnchor.constraint(equalTo: rowStack.bottomAnchor),
 			documentView.leadingAnchor.constraint(equalTo: rowStack.leadingAnchor),
@@ -113,14 +133,14 @@ import RSCore
 
 		let item = NSTabViewItem(identifier: context.rawValue)
 		item.label = context.displayName
-		item.view = scrollView
+		item.view = container
 		return item
 	}
 
 	// MARK: - Actions
 
 	@objc private func restoreDefaults(_ sender: Any?) {
-		statusLabel.stringValue = ""
+		clearStatus()
 		store.restoreDefaults()
 		reload()
 	}
@@ -128,9 +148,27 @@ import RSCore
 	@objc private func clearBinding(_ sender: NSButton) {
 		guard let identifier = sender.identifier?.rawValue,
 			  let (context, action) = decode(identifier) else { return }
-		statusLabel.stringValue = ""
+		clearStatus()
 		store.clearBinding(forAction: action, in: context)
 		reload()
+	}
+
+	/// Show a small warning (beep + orange note) when a binding took a key from
+	/// another command; otherwise clear the status line.
+	private func showConflict(_ reassignedTitle: String?) {
+		guard let reassignedTitle else {
+			statusLabel.stringValue = ""
+			return
+		}
+		NSSound.beep()
+		let format = NSLocalizedString("⚠ Reassigned from “%@”", comment: "Keyboard preferences conflict")
+		statusLabel.textColor = .systemOrange
+		statusLabel.stringValue = String(format: format, reassignedTitle)
+	}
+
+	private func clearStatus() {
+		statusLabel.textColor = .secondaryLabelColor
+		statusLabel.stringValue = ""
 	}
 
 	// MARK: - Building rows
@@ -175,12 +213,7 @@ import RSCore
 		recorder.onRecord = { [weak self] key in
 			guard let self else { return }
 			let reassigned = self.store.setBinding(key, forAction: action, in: context)
-			if let reassigned {
-				let format = NSLocalizedString("Reassigned from “%@”", comment: "Keyboard preferences")
-				self.statusLabel.stringValue = String(format: format, reassigned)
-			} else {
-				self.statusLabel.stringValue = ""
-			}
+			self.showConflict(reassigned)
 			self.reload()
 		}
 

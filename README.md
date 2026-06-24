@@ -1,6 +1,17 @@
 <img src=Technotes/Images/icon_1024.png height=128 width=128 style="display: block; margin: auto;"> 
 
-# NetNewsWire
+# NetNewsWire — Reeder Style
+
+A fork of NetNewsWire that adds Reeder-style reading to the macOS app. Major features added in this fork:
+
+- **In-app web view.** Links in an article open in a built-in browser panel instead of bouncing out to Safari. While browsing, the sidebar collapses, the toolbar switches to browser controls (back to article, web back/forward, reload, open in browser), the page title shows in the toolbar, and the current URL sits in a corner overlay. ⌘/⇧-click and non-web links still go to the external browser. Each browsing session keeps its own history.
+- **Swipe to open / return.** A right-to-left swipe on the article opens its link in the web view; a left-to-right swipe returns to the article.
+- **Offline Reader View.** Full-text extraction runs entirely on-device with Mozilla Readability — no API keys and no hosted parser, so Reader View works in any build. It strips page chrome (consent banners, navigation, modals), has per-site rules for tricky sites, and reuses the app's logged-in session so it can pull full articles from sites you're signed into.
+- **Browser layout fixes.** Pages render with the standard browser user agent so they fit the panel, and the web view never resizes the window.
+
+Everything below is the upstream NetNewsWire README.
+
+---
 
 NetNewsWire is a free and open-source feed reader for macOS and iOS.
 

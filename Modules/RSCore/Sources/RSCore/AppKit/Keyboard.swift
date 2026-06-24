@@ -46,6 +46,11 @@ public struct KeyboardShortcut: Hashable, Sendable {
 		self.actionString = actionString
 	}
 
+	public init(key: KeyboardKey, actionString: String) {
+		self.key = key
+		self.actionString = actionString
+	}
+
 	@MainActor public func perform(with view: NSView) {
 		let action = NSSelectorFromString(actionString)
 		NSApplication.shared.sendAction(action, to: nil, from: view)
@@ -72,7 +77,7 @@ public struct KeyboardKey: Hashable, Sendable {
 		return !shiftKeyDown && !optionKeyDown && !commandKeyDown && !controlKeyDown
 	}
 
-	init(integerValue: Int, shiftKeyDown: Bool, optionKeyDown: Bool, commandKeyDown: Bool, controlKeyDown: Bool) {
+	public init(integerValue: Int, shiftKeyDown: Bool, optionKeyDown: Bool, commandKeyDown: Bool, controlKeyDown: Bool) {
 		self.integerValue = integerValue
 
 		self.shiftKeyDown = shiftKeyDown

@@ -188,6 +188,7 @@ extension DetailViewController: DetailWebViewControllerDelegate {
 extension DetailViewController {
 
 	var isBrowsing: Bool { isShowingBrowser }
+	var browserPageTitle: String? { browserViewController?.pageTitle }
 	var browserCanGoBack: Bool { browserViewController?.canGoBack ?? false }
 	var browserCanGoForward: Bool { browserViewController?.canGoForward ?? false }
 	func browserGoBack() { browserViewController?.goBack() }

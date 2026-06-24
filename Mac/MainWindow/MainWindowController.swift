@@ -50,6 +50,17 @@ final class MainWindowController: NSWindowController, NSUserInterfaceValidations
 	private var mainToolbar: NSToolbar?
 	private var browserToolbar: NSToolbar?
 	private var wasSidebarCollapsed = false
+	private lazy var browserTitleField: NSTextField = {
+		let field = NSTextField(labelWithString: "")
+		field.lineBreakMode = .byTruncatingTail
+		field.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
+		// Truncate rather than push the toolbar/window wider; cap the width so a
+		// long page title can't grow the layout.
+		field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+		field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+		field.widthAnchor.constraint(lessThanOrEqualToConstant: 700).isActive = true
+		return field
+	}()
 	private var currentSearchField: NSSearchField?
 	private let articleThemeMenuToolbarItem = NSMenuToolbarItem(itemIdentifier: .articleThemeMenu)
 	private var searchString: String?
@@ -592,6 +603,23 @@ final class MainWindowController: NSWindowController, NSUserInterfaceValidations
 
 	@objc func browserNavigationStateDidChange(_ note: Notification) {
 		makeToolbarValidate()
+		updateBrowserWindowTitleIfNeeded()
+	}
+
+	/// While the in-app browser is open, show the page's title in the titlebar
+	/// instead of the feed name + unread count (which, with a long feed name,
+	/// spills across the titlebar over the web view).
+	func updateBrowserWindowTitleIfNeeded() {
+		guard detailViewController?.isBrowsing ?? false else {
+			return
+		}
+		// The page title goes in the browser toolbar (over the web view). Keep the
+		// window titlebar empty so the feed name doesn't span across the timeline.
+		if let title = detailViewController?.browserPageTitle {
+			browserTitleField.stringValue = title
+		}
+		window?.title = ""
+		window?.subtitle = ""
 	}
 }
 
@@ -830,6 +858,7 @@ extension NSToolbarItem.Identifier {
 	static let browserGoForward = NSToolbarItem.Identifier("browserGoForward")
 	static let browserReload = NSToolbarItem.Identifier("browserReload")
 	static let browserOpenInSafari = NSToolbarItem.Identifier("browserOpenInSafari")
+	static let browserPageTitle = NSToolbarItem.Identifier("browserPageTitle")
 }
 
 extension MainWindowController: NSToolbarDelegate {
@@ -927,6 +956,12 @@ extension MainWindowController: NSToolbarDelegate {
 			let title = NSLocalizedString("Reload", comment: "Reload")
 			return buildToolbarButton(.browserReload, title, NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: title)!, "browserReload:")
 
+		case .browserPageTitle:
+			let item = NSToolbarItem(itemIdentifier: .browserPageTitle)
+			item.view = browserTitleField
+			item.visibilityPriority = .low
+			return item
+
 		case .browserOpenInSafari:
 			let title = NSLocalizedString("Open in Browser", comment: "Open in Browser")
 			return buildToolbarButton(.browserOpenInSafari, title, Assets.Images.openInBrowser, "browserOpenInSafari:")
@@ -940,7 +975,7 @@ extension MainWindowController: NSToolbarDelegate {
 
 	func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
 		if toolbar.identifier == "MainWindowBrowserToolbar" {
-			return [.browserGoArticle, .flexibleSpace, .browserGoBack, .browserGoForward, .browserReload, .flexibleSpace, .browserOpenInSafari]
+			return [.timelineTrackingSeparator, .browserPageTitle, .flexibleSpace, .browserGoArticle, .browserGoBack, .browserGoForward, .browserReload, .browserOpenInSafari]
 		}
 		return [
 			NSToolbarItem.Identifier.toggleSidebar,
@@ -965,7 +1000,7 @@ extension MainWindowController: NSToolbarDelegate {
 
 	func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
 		if toolbar.identifier == "MainWindowBrowserToolbar" {
-			return [.browserGoArticle, .flexibleSpace, .browserGoBack, .browserGoForward, .browserReload, .flexibleSpace, .browserOpenInSafari]
+			return [.timelineTrackingSeparator, .browserPageTitle, .flexibleSpace, .browserGoArticle, .browserGoBack, .browserGoForward, .browserReload, .browserOpenInSafari]
 		}
 		return [
 			NSToolbarItem.Identifier.toggleSidebar,
@@ -1378,6 +1413,12 @@ private extension MainWindowController {
 	}
 
 	func updateWindowTitle() {
+		guard !(detailViewController?.isBrowsing ?? false) else {
+			// The in-app browser owns the titlebar while it's open.
+			updateBrowserWindowTitleIfNeeded()
+			return
+		}
+
 		guard timelineSourceMode != .search else {
 			let localizedLabel = NSLocalizedString("Search: %@", comment: "Search")
 			window?.title = NSString.localizedStringWithFormat(localizedLabel as NSString, searchString ?? "") as String
@@ -1563,6 +1604,12 @@ private extension MainWindowController {
 		window?.toolbar = browserToolbar
 
 		detailViewController?.showBrowser(url: url)
+
+		// Show the page title in the toolbar (over the web view), starting with the
+		// host until the page title loads; clear the window title so nothing spans.
+		browserTitleField.stringValue = url.host ?? appName
+		window?.title = ""
+		window?.subtitle = ""
 	}
 
 	func closeInAppBrowser() {
@@ -1573,5 +1620,6 @@ private extension MainWindowController {
 		window?.toolbar = mainToolbar
 		sidebarSplitViewItem?.animator().isCollapsed = wasSidebarCollapsed
 		makeToolbarValidate()
+		updateWindowTitle()   // restore the feed name + unread count
 	}
 }

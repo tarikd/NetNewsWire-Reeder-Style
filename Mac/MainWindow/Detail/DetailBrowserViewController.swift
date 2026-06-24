@@ -10,7 +10,6 @@
 
 import AppKit
 @preconcurrency import WebKit
-import RSWeb
 
 extension Notification.Name {
 	static let DetailBrowserNavigationStateDidChange = Notification.Name("DetailBrowserNavigationStateDidChange")
@@ -32,15 +31,18 @@ final class DetailBrowserViewController: NSViewController {
 
 	var canGoBack: Bool { webView?.canGoBack ?? false }
 	var canGoForward: Bool { webView?.canGoForward ?? false }
+	var pageTitle: String? {
+		let title = webView?.title
+		return (title?.isEmpty ?? true) ? nil : title
+	}
 
 	override func loadView() {
 		let configuration = WKWebViewConfiguration()
 		webView = WKWebView(frame: .zero, configuration: configuration)
 		webView.navigationDelegate = self
 		webView.translatesAutoresizingMaskIntoConstraints = false
-		if let userAgent = UserAgent.fromInfoPlist() {
-			webView.customUserAgent = userAgent
-		}
+		// Use WebKit's default Safari user agent rather than NetNewsWire's
+		// feed-reader UA so sites serve their normal browser layout.
 
 		let container = NSView()
 		container.addSubview(webView)
@@ -100,6 +102,10 @@ final class DetailBrowserViewController: NSViewController {
 		urlLabel.textColor = .secondaryLabelColor
 		urlLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
 		urlLabel.translatesAutoresizingMaskIntoConstraints = false
+		// Let a long URL truncate instead of forcing the overlay — and through
+		// the width≤0.7×container constraint, the pane and window — to grow.
+		urlLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+		urlLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
 		let box = NSVisualEffectView()
 		box.material = .hudWindow
@@ -138,6 +144,9 @@ final class DetailBrowserViewController: NSViewController {
 			},
 			webView.observe(\.url, options: [.new]) { [weak self] webView, _ in
 				Task { @MainActor in self?.setURLText(webView.url?.absoluteString) }
+			},
+			webView.observe(\.title, options: [.new]) { [weak self] _, _ in
+				Task { @MainActor in self?.postNavigationStateChange() }
 			}
 		]
 	}

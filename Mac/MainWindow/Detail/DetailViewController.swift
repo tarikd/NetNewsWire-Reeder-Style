@@ -20,6 +20,11 @@ enum DetailState: Equatable {
 	case extracted(Article, ExtractedArticle, CGFloat?)
 }
 
+@MainActor protocol DetailViewControllerDelegate: AnyObject {
+	func detailViewController(_: DetailViewController, didRequestInAppBrowserFor url: URL)
+	func detailViewControllerDidRequestArticle(_: DetailViewController)
+}
+
 final class DetailViewController: NSViewController, WKUIDelegate {
 
 	@IBOutlet var containerView: DetailContainerView!
@@ -30,6 +35,8 @@ final class DetailViewController: NSViewController, WKUIDelegate {
 
 	private var browserViewController: DetailBrowserViewController?
 	private var isShowingBrowser = false
+
+	weak var delegate: DetailViewControllerDelegate?
 
 	var windowState: DetailWindowState {
 		currentWebViewController.windowState
@@ -144,32 +151,59 @@ extension DetailViewController: DetailWebViewControllerDelegate {
 		guard detailWebViewController === currentWebViewController else {
 			return
 		}
-		statusBarView.mouseoverLink = nil
-
-		let controller = DetailBrowserViewController()
-		controller.delegate = self
-		browserViewController = controller
-
-		// Assigning the view realizes it (loads the web view) before we load a URL,
-		// and puts the browser in the responder chain so Esc returns to the article.
-		containerView.contentView = controller.view
-		controller.load(url)
-		controller.focusWebView()
-		isShowingBrowser = true
+		delegate?.detailViewController(self, didRequestInAppBrowserFor: url)
 	}
 
 	func detailWebViewController(_ detailWebViewController: DetailWebViewController, didSwipeWithDeltaX deltaX: CGFloat) {
 		switch SwipeDecider.action(deltaX: deltaX, isBrowsing: isShowingBrowser) {
 		case .openWeb:
 			if let url = detailWebViewController.currentArticleURL {
-				openInAppBrowser(detailWebViewController, url: url)
+				delegate?.detailViewController(self, didRequestInAppBrowserFor: url)
 			}
 		case .returnToArticle:
-			dismissBrowserIfNeeded()
-			focus()
+			if let delegate {
+				delegate.detailViewControllerDidRequestArticle(self)
+			} else {
+				dismissBrowser()
+			}
 		case .ignore:
 			break
 		}
+	}
+}
+
+// MARK: - Browser
+
+extension DetailViewController {
+
+	var isBrowsing: Bool { isShowingBrowser }
+	var browserCanGoBack: Bool { browserViewController?.canGoBack ?? false }
+	var browserCanGoForward: Bool { browserViewController?.canGoForward ?? false }
+	func browserGoBack() { browserViewController?.goBack() }
+	func browserGoForward() { browserViewController?.goForward() }
+	func browserReload() { browserViewController?.reload() }
+	func browserOpenInDefaultBrowser() { browserViewController?.openInDefaultBrowser() }
+
+	func showBrowser(url: URL) {
+		statusBarView.mouseoverLink = nil
+		let controller = DetailBrowserViewController()
+		controller.delegate = self
+		browserViewController = controller
+		containerView.contentView = controller.view   // realize the view before load
+		controller.load(url)
+		controller.focusWebView()
+		isShowingBrowser = true
+	}
+
+	func dismissBrowser() {
+		guard isShowingBrowser else {
+			return
+		}
+		isShowingBrowser = false
+		browserViewController?.stopMediaPlayback()
+		browserViewController = nil
+		containerView.contentView = currentWebViewController.view
+		focus()
 	}
 }
 
@@ -178,8 +212,11 @@ extension DetailViewController: DetailWebViewControllerDelegate {
 extension DetailViewController: DetailBrowserViewControllerDelegate {
 
 	func detailBrowserViewControllerDidRequestArticle(_ controller: DetailBrowserViewController) {
-		dismissBrowserIfNeeded()
-		focus()
+		if let delegate {
+			delegate.detailViewControllerDidRequestArticle(self)
+		} else {
+			dismissBrowser()
+		}
 	}
 }
 
@@ -191,10 +228,11 @@ private extension DetailViewController {
 		guard isShowingBrowser else {
 			return
 		}
-		isShowingBrowser = false
-		browserViewController?.stopMediaPlayback()
-		browserViewController = nil
-		containerView.contentView = currentWebViewController.view
+		if let delegate {
+			delegate.detailViewControllerDidRequestArticle(self)
+		} else {
+			dismissBrowser()
+		}
 	}
 
 	func createWebViewController() -> DetailWebViewController {

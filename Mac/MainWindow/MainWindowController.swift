@@ -47,6 +47,9 @@ final class MainWindowController: NSWindowController, NSUserInterfaceValidations
 	private var sidebarViewController: SidebarViewController?
 	private var timelineContainerViewController: TimelineContainerViewController?
 	private var detailViewController: DetailViewController?
+	private var mainToolbar: NSToolbar?
+	private var browserToolbar: NSToolbar?
+	private var wasSidebarCollapsed = false
 	private var currentSearchField: NSSearchField?
 	private let articleThemeMenuToolbarItem = NSMenuToolbarItem(itemIdentifier: .articleThemeMenu)
 	private var searchString: String?
@@ -75,6 +78,7 @@ final class MainWindowController: NSWindowController, NSUserInterfaceValidations
 		toolbar.displayMode = .iconOnly
 		toolbar.delegate = self
 		self.window?.toolbar = toolbar
+		mainToolbar = toolbar
 
 		if let window = window {
 			let point = NSPoint(x: 128, y: 64)
@@ -99,6 +103,7 @@ final class MainWindowController: NSWindowController, NSUserInterfaceValidations
 		}
 
 		detailViewController = splitViewController?.splitViewItems[2].viewController as? DetailViewController
+		detailViewController?.delegate = self
 
 		if #unavailable(macOS 26.0) {
 			splitViewController?.splitViewItems[2].titlebarSeparatorStyle = .line
@@ -113,6 +118,8 @@ final class MainWindowController: NSWindowController, NSUserInterfaceValidations
 
 		NotificationCenter.default.addObserver(self, selector: #selector(articleThemeNamesDidChangeNotification(_:)), name: .ArticleThemeNamesDidChangeNotification, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(currentArticleThemeDidChangeNotification(_:)), name: .CurrentArticleThemeDidChangeNotification, object: nil)
+
+		NotificationCenter.default.addObserver(self, selector: #selector(browserNavigationStateDidChange(_:)), name: .DetailBrowserNavigationStateDidChange, object: nil)
 
 		DispatchQueue.main.async {
 			self.updateWindowTitle()
@@ -292,6 +299,14 @@ final class MainWindowController: NSWindowController, NSUserInterfaceValidations
 
 		if item.action == #selector(toggleReadArticlesFilter(_:)) {
 			return validateToggleReadArticles(item)
+		}
+
+		if item.action == #selector(browserGoBack(_:)) {
+			return detailViewController?.browserCanGoBack ?? false
+		}
+
+		if item.action == #selector(browserGoForward(_:)) {
+			return detailViewController?.browserCanGoForward ?? false
 		}
 
 		return true
@@ -567,6 +582,16 @@ final class MainWindowController: NSWindowController, NSUserInterfaceValidations
 	@objc func selectArticleTheme(_ menuItem: NSMenuItem) {
 		ArticleThemesManager.shared.currentThemeName = menuItem.title
 	}
+
+	@objc func browserGoArticle(_ sender: Any?) { closeInAppBrowser() }
+	@objc func browserGoBack(_ sender: Any?) { detailViewController?.browserGoBack() }
+	@objc func browserGoForward(_ sender: Any?) { detailViewController?.browserGoForward() }
+	@objc func browserReload(_ sender: Any?) { detailViewController?.browserReload() }
+	@objc func browserOpenInSafari(_ sender: Any?) { detailViewController?.browserOpenInDefaultBrowser() }
+
+	@objc func browserNavigationStateDidChange(_ note: Notification) {
+		makeToolbarValidate()
+	}
 }
 
 // MARK: NSWindowDelegate
@@ -799,6 +824,11 @@ extension NSToolbarItem.Identifier {
 	static let share = NSToolbarItem.Identifier("share")
 	static let articleThemeMenu = NSToolbarItem.Identifier("articleThemeMenu")
 	static let cleanUp = NSToolbarItem.Identifier("cleanUp")
+	static let browserGoArticle = NSToolbarItem.Identifier("browserGoArticle")
+	static let browserGoBack = NSToolbarItem.Identifier("browserGoBack")
+	static let browserGoForward = NSToolbarItem.Identifier("browserGoForward")
+	static let browserReload = NSToolbarItem.Identifier("browserReload")
+	static let browserOpenInSafari = NSToolbarItem.Identifier("browserOpenInSafari")
 }
 
 extension MainWindowController: NSToolbarDelegate {
@@ -880,6 +910,26 @@ extension MainWindowController: NSToolbarDelegate {
 			let title = NSLocalizedString("Clean Up", comment: "Clean Up button")
 			return buildToolbarButton(.cleanUp, title, Assets.Images.cleanUp, "cleanUp:")
 
+		case .browserGoArticle:
+			let title = NSLocalizedString("Article", comment: "Return to article")
+			return buildToolbarButton(.browserGoArticle, title, NSImage(systemSymbolName: "chevron.left", accessibilityDescription: title)!, "browserGoArticle:")
+
+		case .browserGoBack:
+			let title = NSLocalizedString("Back", comment: "Back")
+			return buildToolbarButton(.browserGoBack, title, NSImage(systemSymbolName: "chevron.backward", accessibilityDescription: title)!, "browserGoBack:")
+
+		case .browserGoForward:
+			let title = NSLocalizedString("Forward", comment: "Forward")
+			return buildToolbarButton(.browserGoForward, title, NSImage(systemSymbolName: "chevron.forward", accessibilityDescription: title)!, "browserGoForward:")
+
+		case .browserReload:
+			let title = NSLocalizedString("Reload", comment: "Reload")
+			return buildToolbarButton(.browserReload, title, NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: title)!, "browserReload:")
+
+		case .browserOpenInSafari:
+			let title = NSLocalizedString("Open in Browser", comment: "Open in Browser")
+			return buildToolbarButton(.browserOpenInSafari, title, Assets.Images.openInBrowser, "browserOpenInSafari:")
+
 		default:
 			break
 		}
@@ -888,7 +938,10 @@ extension MainWindowController: NSToolbarDelegate {
 	}
 
 	func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-		[
+		if toolbar.identifier == "MainWindowBrowserToolbar" {
+			return [.browserGoArticle, .flexibleSpace, .browserGoBack, .browserGoForward, .browserReload, .flexibleSpace, .browserOpenInSafari]
+		}
+		return [
 			NSToolbarItem.Identifier.toggleSidebar,
 			.refresh,
 			.newSidebarItemMenu,
@@ -910,7 +963,10 @@ extension MainWindowController: NSToolbarDelegate {
 	}
 
 	func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-		[
+		if toolbar.identifier == "MainWindowBrowserToolbar" {
+			return [.browserGoArticle, .flexibleSpace, .browserGoBack, .browserGoForward, .browserReload, .flexibleSpace, .browserOpenInSafari]
+		}
+		return [
 			NSToolbarItem.Identifier.toggleSidebar,
 			.flexibleSpace,
 			.refresh,
@@ -959,6 +1015,15 @@ extension MainWindowController: NSToolbarDelegate {
 			searchItem.searchField.action = nil
 			currentSearchField = nil
 		}
+	}
+
+	private func makeBrowserToolbar() -> NSToolbar {
+		let toolbar = NSToolbar(identifier: "MainWindowBrowserToolbar")
+		toolbar.delegate = self
+		toolbar.displayMode = .iconOnly
+		toolbar.allowsUserCustomization = false
+		toolbar.autosavesConfiguration = false
+		return toolbar
 	}
 }
 
@@ -1467,5 +1532,45 @@ private extension MainWindowController {
 
 		articleThemeMenuToolbarItem.menu = articleThemeMenu
 		articleThemePopUpButton?.menu = articleThemeMenu
+	}
+}
+
+// MARK: - DetailViewControllerDelegate
+
+extension MainWindowController: DetailViewControllerDelegate {
+
+	func detailViewController(_ controller: DetailViewController, didRequestInAppBrowserFor url: URL) {
+		showInAppBrowser(url: url)
+	}
+
+	func detailViewControllerDidRequestArticle(_ controller: DetailViewController) {
+		closeInAppBrowser()
+	}
+}
+
+private extension MainWindowController {
+
+	func showInAppBrowser(url: URL) {
+		if detailViewController?.isBrowsing ?? false {
+			detailViewController?.showBrowser(url: url)   // already browsing: just load
+			return
+		}
+		wasSidebarCollapsed = sidebarSplitViewItem?.isCollapsed ?? false
+		sidebarSplitViewItem?.animator().isCollapsed = true
+
+		if browserToolbar == nil { browserToolbar = makeBrowserToolbar() }
+		window?.toolbar = browserToolbar
+
+		detailViewController?.showBrowser(url: url)
+	}
+
+	func closeInAppBrowser() {
+		guard detailViewController?.isBrowsing ?? false else {
+			return
+		}
+		detailViewController?.dismissBrowser()
+		window?.toolbar = mainToolbar
+		sidebarSplitViewItem?.animator().isCollapsed = wasSidebarCollapsed
+		makeToolbarValidate()
 	}
 }

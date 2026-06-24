@@ -103,7 +103,14 @@ public enum ArticleExtractorState: Sendable {
 	}
 
 	private func runReadability() {
-		let js = "(function(){try{var a=new Readability(document.cloneNode(true)).parse();return a?JSON.stringify(a):null;}catch(e){return null;}})()"
+		let host = url.host ?? ""
+		let selectors = Self.baseJunkSelectors + Self.siteJunkSelectors(forHost: host)
+		let selectorsJSON = (try? JSONSerialization.data(withJSONObject: selectors))
+			.flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+		let contentSelector = Self.siteContentSelector(forHost: host)
+		let contentJSON = contentSelector.map { "\"\($0)\"" } ?? "null"
+
+		let js = Self.extractionJavaScript(selectorsJSON: selectorsJSON, contentSelectorJSON: contentJSON)
 		webView?.evaluateJavaScript(js) { [weak self] result, _ in
 			Task { @MainActor in
 				guard let self else { return }
@@ -117,6 +124,93 @@ public enum ArticleExtractorState: Sendable {
 				self.complete(parsed.extractedArticle(url: self.articleLink))
 			}
 		}
+	}
+
+	/// Chrome that Readability's generic scoring sometimes mistakes for the
+	/// article: scripts, navigation, consent managers, modals, banners.
+	nonisolated static let baseJunkSelectors = [
+		"script", "style", "noscript", "template", "iframe",
+		"nav",
+		"dialog", "[aria-modal=\"true\"]",
+		"[role=\"navigation\"]", "[role=\"banner\"]", "[role=\"dialog\"]",
+		"[id*=\"cookie\" i]", "[class*=\"cookie\" i]",
+		"[id*=\"consent\" i]", "[class*=\"consent\" i]",
+		"[id*=\"gdpr\" i]", "[class*=\"gdpr\" i]",
+		"[id*=\"onetrust\" i]", "[class*=\"onetrust\" i]",
+		"[id*=\"didomi\" i]", "[class*=\"didomi\" i]",
+		"[id*=\"sp_message\" i]", "[class*=\"sp-message\" i]",
+		"[class*=\"newsletter\" i]", "[class*=\"paywall\" i]"
+	]
+
+	/// Extra chrome selectors for sites whose markup defeats the generic list.
+	nonisolated static func siteJunkSelectors(forHost host: String) -> [String] {
+		let host = host.lowercased()
+		if host == "lemonde.fr" || host.hasSuffix(".lemonde.fr") {
+			return [".ds-header", ".ds-burger-popin", ".ds-footer"]
+		}
+		return []
+	}
+
+	/// Some sites bury the article in chrome that blocklisting can't reliably
+	/// remove (e.g. paywalled pages where stripping the menu leaves too little
+	/// for Readability's scoring). For those we whitelist the known article
+	/// container and run Readability on just that subtree. Mirrors the per-site
+	/// custom extractors the old Mercury parser shipped.
+	nonisolated static func siteContentSelector(forHost host: String) -> String? {
+		let host = host.lowercased()
+		if host == "lemonde.fr" || host.hasSuffix(".lemonde.fr") {
+			return "article.article__content"
+		}
+		return nil
+	}
+
+	/// Tries, in order: the whitelisted article container (if known), then a copy
+	/// of the page with junk stripped, then the untouched page. So a site rule can
+	/// only help, never make a site worse.
+	nonisolated private static func extractionJavaScript(selectorsJSON: String, contentSelectorJSON: String) -> String {
+		"""
+		(function() {
+			var JUNK = \(selectorsJSON);
+			var CONTENT = \(contentSelectorJSON);
+
+			function parse(doc) {
+				try { return new Readability(doc, { charThreshold: 200 }).parse(); }
+				catch (error) { return null; }
+			}
+			function hasContent(article) {
+				return !!(article && article.content && article.textContent && article.textContent.trim().length > 0);
+			}
+
+			try {
+				// 1. Whitelist: isolate the known article container.
+				if (CONTENT) {
+					var node = document.querySelector(CONTENT);
+					if (node) {
+						var isolated = document.cloneNode(true);
+						isolated.body.innerHTML = node.outerHTML;
+						var whitelisted = parse(isolated);
+						if (hasContent(whitelisted)) { return JSON.stringify(whitelisted); }
+					}
+				}
+
+				// 2. Blocklist: strip junk and let Readability score the rest.
+				var cleaned = document.cloneNode(true);
+				try {
+					cleaned.querySelectorAll(JUNK.join(",")).forEach(function(node) {
+						if (node && node.parentNode) { node.parentNode.removeChild(node); }
+					});
+				} catch (selectorError) { /* a bad selector shouldn't abort extraction */ }
+				var article = parse(cleaned);
+				if (hasContent(article)) { return JSON.stringify(article); }
+
+				// 3. Fall back to the untouched page.
+				var fallback = parse(document.cloneNode(true));
+				return hasContent(fallback) ? JSON.stringify(fallback) : null;
+			} catch (error) {
+				return null;
+			}
+		})()
+		"""
 	}
 }
 

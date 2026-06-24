@@ -157,6 +157,20 @@ extension DetailViewController: DetailWebViewControllerDelegate {
 		controller.focusWebView()
 		isShowingBrowser = true
 	}
+
+	func detailWebViewController(_ detailWebViewController: DetailWebViewController, didSwipeWithDeltaX deltaX: CGFloat) {
+		switch SwipeDecider.action(deltaX: deltaX, isBrowsing: isShowingBrowser) {
+		case .openWeb:
+			if let url = detailWebViewController.currentArticleURL {
+				openInAppBrowser(detailWebViewController, url: url)
+			}
+		case .returnToArticle:
+			dismissBrowserIfNeeded()
+			focus()
+		case .ignore:
+			break
+		}
+	}
 }
 
 // MARK: - DetailBrowserViewControllerDelegate

@@ -163,6 +163,11 @@ public enum ArticleExtractorState: Sendable {
 		if host == "lemonde.fr" || host.hasSuffix(".lemonde.fr") {
 			return "article.article__content"
 		}
+		if host == "mediapart.fr" || host.hasSuffix(".mediapart.fr") {
+			// Mediapart names the article body `paywall-restricted-content`, which the
+			// generic paywall junk rule would otherwise strip. Whitelist it directly.
+			return ".news__body__center__article"
+		}
 		return nil
 	}
 

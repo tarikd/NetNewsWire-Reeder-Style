@@ -13,6 +13,10 @@ final class ArticleExtractorSiteRulesTests: XCTestCase {
 		XCTAssertNotNil(ArticleExtractor.siteContentSelector(forHost: "lemonde.fr"))
 	}
 
+	func testMediapartWhitelistsArticleContainer() {
+		XCTAssertEqual(ArticleExtractor.siteContentSelector(forHost: "www.mediapart.fr"), ".news__body__center__article")
+	}
+
 	func testUnknownHostHasNoSiteRules() {
 		XCTAssertTrue(ArticleExtractor.siteJunkSelectors(forHost: "www.yabiladi.com").isEmpty)
 		XCTAssertNil(ArticleExtractor.siteContentSelector(forHost: "www.yabiladi.com"))

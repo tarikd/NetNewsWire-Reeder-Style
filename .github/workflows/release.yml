@@ -17,6 +17,10 @@ jobs:
   build-dmg:
     name: Build DMG
     runs-on: macos-26
+    env:
+      # "true" when Developer ID signing secrets are configured; otherwise the
+      # job falls back to an ad-hoc (unsigned, un-notarized) build.
+      SIGNED: ${{ secrets.DEVELOPER_ID_CERT_P12 != '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -38,16 +42,62 @@ jobs:
             echo "version=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Build the Mac app (ad-hoc signed, Release)
+      - name: Import Developer ID certificate
+        if: env.SIGNED == 'true'
+        env:
+          CERT_P12: ${{ secrets.DEVELOPER_ID_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.DEVELOPER_ID_CERT_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/build.keychain-db"
+          CERT_PATH="$RUNNER_TEMP/developer_id.p12"
+
+          echo "$CERT_P12" | base64 --decode > "$CERT_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$CERT_PATH" -k "$KEYCHAIN" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          # Put the build keychain first in the search list so codesign finds the identity.
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | sed s/\"//g)
+
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN" | grep "Developer ID Application" | head -1 | sed -E 's/.*"(.+)"$/\1/')
+          if [ -z "$IDENTITY" ]; then echo "No Developer ID Application identity found"; exit 1; fi
+          echo "SIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+          echo "Using identity: $IDENTITY"
+          rm -f "$CERT_PATH"
+
+      - name: Build (Developer ID, hardened runtime)
+        if: env.SIGNED == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          # Ad-hoc sign (identity "-") rather than disabling signing: the Release
-          # config has run-script phases that re-sign Sparkle and the share
-          # extension with $EXPANDED_CODE_SIGN_IDENTITY, which is empty (and fails)
-          # when CODE_SIGNING_ALLOWED=NO. Ad-hoc signing satisfies them while still
-          # producing a non-Developer-ID, un-notarized build. Use the -dev
-          # entitlements (no sandbox / iCloud) so no provisioning is needed.
+          xcodebuild build \
+            -project NetNewsWire.xcodeproj \
+            -scheme NetNewsWire \
+            -configuration Release \
+            -derivedDataPath build \
+            -destination 'generic/platform=macOS' \
+            DEVELOPER_ENTITLEMENTS=-release \
+            ORGANIZATION_IDENTIFIER="${{ secrets.ORGANIZATION_IDENTIFIER }}" \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="$SIGN_IDENTITY" \
+            DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}" \
+            PROVISIONING_PROFILE_SPECIFIER= \
+            ENABLE_HARDENED_RUNTIME=YES \
+            OTHER_CODE_SIGN_FLAGS=--timestamp \
+            | xcbeautify --renderer github-actions
+
+      - name: Build (ad-hoc, unsigned fallback)
+        if: env.SIGNED != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # No signing secrets configured: ad-hoc sign (identity "-") with the -dev
+          # entitlements so the Release re-sign scripts still succeed. Not notarized.
           xcodebuild build \
             -project NetNewsWire.xcodeproj \
             -scheme NetNewsWire \
@@ -72,8 +122,6 @@ jobs:
           APP="build/Build/Products/Release/NetNewsWire.app"
           NAME="NetNewsWire-Reeder-Style-${{ steps.version.outputs.version }}.dmg"
 
-          # Build the DMG with hdiutil (no Finder/AppleScript, so it's reliable in CI):
-          # a staging folder with the app and an /Applications symlink for drag-to-install.
           STAGE="$(mktemp -d)/dmg"
           mkdir -p "$STAGE"
           cp -R "$APP" "$STAGE/"
@@ -82,7 +130,44 @@ jobs:
             -srcfolder "$STAGE" -ov -format UDZO "$NAME"
 
           echo "path=$NAME" >> "$GITHUB_OUTPUT"
-          echo "Built $NAME"
+
+      - name: Notarize and staple
+        if: env.SIGNED == 'true'
+        env:
+          AC_API_KEY_ID: ${{ secrets.AC_API_KEY_ID }}
+          AC_API_ISSUER_ID: ${{ secrets.AC_API_ISSUER_ID }}
+          AC_API_KEY_P8: ${{ secrets.AC_API_KEY_P8 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          DMG="${{ steps.dmg.outputs.path }}"
+          KEY="$RUNNER_TEMP/AuthKey.p8"
+          echo "$AC_API_KEY_P8" | base64 --decode > "$KEY"
+
+          SUBMIT=$(xcrun notarytool submit "$DMG" \
+            --key "$KEY" --key-id "$AC_API_KEY_ID" --issuer "$AC_API_ISSUER_ID" \
+            --output-format json)
+          echo "$SUBMIT"
+          ID=$(echo "$SUBMIT" | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
+
+          xcrun notarytool wait "$ID" \
+            --key "$KEY" --key-id "$AC_API_KEY_ID" --issuer "$AC_API_ISSUER_ID" --timeout 30m || true
+
+          # Always print the notary log so failures are diagnosable.
+          xcrun notarytool log "$ID" \
+            --key "$KEY" --key-id "$AC_API_KEY_ID" --issuer "$AC_API_ISSUER_ID" || true
+
+          STATUS=$(xcrun notarytool info "$ID" \
+            --key "$KEY" --key-id "$AC_API_KEY_ID" --issuer "$AC_API_ISSUER_ID" \
+            --output-format json | python3 -c 'import sys,json;print(json.load(sys.stdin)["status"])')
+          rm -f "$KEY"
+          if [ "$STATUS" != "Accepted" ]; then
+            echo "Notarization status: $STATUS"
+            exit 1
+          fi
+
+          xcrun stapler staple "$DMG"
+          xcrun stapler validate "$DMG"
 
       - name: Upload DMG artifact (manual runs)
         if: github.event_name == 'workflow_dispatch'
@@ -102,7 +187,4 @@ jobs:
           body: |
             **NetNewsWire — Reeder Style** ${{ steps.version.outputs.version }}
 
-            This is an unsigned, un-notarized build. On first launch macOS Gatekeeper
-            will warn that the developer can't be verified — **right-click the app and
-            choose Open**, then confirm. (Or run
-            `xattr -dr com.apple.quarantine /Applications/NetNewsWire.app` once.)
+            ${{ env.SIGNED == 'true' && 'Signed with Developer ID and notarized — it opens normally on macOS.' || 'Unsigned, un-notarized build: on first launch, right-click the app and choose **Open** (or run `xattr -dr com.apple.quarantine /Applications/NetNewsWire.app`).' }}

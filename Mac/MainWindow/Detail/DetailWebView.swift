@@ -12,7 +12,6 @@ import RSCore
 
 final class DetailWebView: WKWebView {
 	weak var keyboardDelegate: KeyboardDelegate?
-	var swipeHandler: ((CGFloat) -> Void)?
 	private var isObservingResizeNotifications = false
 
 	private static let estimatedToolbarHeight: CGFloat = 52 // Height of macOS 26.2 icon-only toolbar
@@ -52,10 +51,6 @@ final class DetailWebView: WKWebView {
 			return
 		}
 		super.keyDown(with: event)
-	}
-
-	override func swipe(with event: NSEvent) {
-		swipeHandler?(event.deltaX)
 	}
 
 	// MARK: - NSView

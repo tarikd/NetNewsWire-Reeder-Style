@@ -17,7 +17,6 @@ import Images
 	func mouseDidEnter(_: DetailWebViewController, link: String)
 	func mouseDidExit(_: DetailWebViewController)
 	func openInAppBrowser(_: DetailWebViewController, url: URL)
-	func detailWebViewController(_: DetailWebViewController, didSwipeWithDeltaX deltaX: CGFloat)
 }
 
 final class DetailWebViewController: NSViewController {
@@ -104,10 +103,6 @@ final class DetailWebViewController: NSViewController {
 		webView.translatesAutoresizingMaskIntoConstraints = false
 		if let userAgent = UserAgent.fromInfoPlist() {
 			webView.customUserAgent = userAgent
-		}
-		webView.swipeHandler = { [weak self] deltaX in
-			guard let self else { return }
-			self.delegate?.detailWebViewController(self, didSwipeWithDeltaX: deltaX)
 		}
 
 		view = webView

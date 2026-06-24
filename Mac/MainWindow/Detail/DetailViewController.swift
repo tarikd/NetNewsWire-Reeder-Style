@@ -36,6 +36,17 @@ final class DetailViewController: NSViewController, WKUIDelegate {
 	private var browserViewController: DetailBrowserViewController?
 	private var isShowingBrowser = false
 
+	// Horizontal-swipe detection. A two-finger "swipe between pages" gesture
+	// arrives as scroll events (not discrete .swipe events), and WKWebView
+	// handles scrolling in its own internal view — so we watch via a local
+	// event monitor rather than an NSResponder override.
+	private var swipeEventMonitor: Any?
+	private var swipeTracking = false
+	private var swipeFired = false
+	private var swipeAccumX: CGFloat = 0
+	private var swipeAccumY: CGFloat = 0
+	private static let swipeHorizontalThreshold: CGFloat = 60
+
 	weak var delegate: DetailViewControllerDelegate?
 
 	var windowState: DetailWindowState {
@@ -79,6 +90,23 @@ final class DetailViewController: NSViewController, WKUIDelegate {
 			Task { @MainActor in
 				self?.userDefaultsDidChange()
 			}
+		}
+	}
+
+	override func viewDidAppear() {
+		super.viewDidAppear()
+		if swipeEventMonitor == nil {
+			swipeEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.swipe, .scrollWheel]) { [weak self] event in
+				self?.handleSwipeEvent(event) ?? event
+			}
+		}
+	}
+
+	override func viewWillDisappear() {
+		super.viewWillDisappear()
+		if let swipeEventMonitor {
+			NSEvent.removeMonitor(swipeEventMonitor)
+			self.swipeEventMonitor = nil
 		}
 	}
 
@@ -153,23 +181,6 @@ extension DetailViewController: DetailWebViewControllerDelegate {
 		}
 		delegate?.detailViewController(self, didRequestInAppBrowserFor: url)
 	}
-
-	func detailWebViewController(_ detailWebViewController: DetailWebViewController, didSwipeWithDeltaX deltaX: CGFloat) {
-		switch SwipeDecider.action(deltaX: deltaX, isBrowsing: isShowingBrowser) {
-		case .openWeb:
-			if let url = detailWebViewController.currentArticleURL {
-				delegate?.detailViewController(self, didRequestInAppBrowserFor: url)
-			}
-		case .returnToArticle:
-			if let delegate {
-				delegate.detailViewControllerDidRequestArticle(self)
-			} else {
-				dismissBrowser()
-			}
-		case .ignore:
-			break
-		}
-	}
 }
 
 // MARK: - Browser
@@ -204,6 +215,89 @@ extension DetailViewController {
 		browserViewController = nil
 		containerView.contentView = currentWebViewController.view
 		focus()
+	}
+}
+
+// MARK: - Swipe handling
+
+private extension DetailViewController {
+
+	/// Returns nil to swallow the event (we acted on it), or the event to pass it through.
+	func handleSwipeEvent(_ event: NSEvent) -> NSEvent? {
+		guard let window = view.window, event.window === window, window.isKeyWindow else {
+			return event
+		}
+		let pointInContainer = containerView.convert(event.locationInWindow, from: nil)
+		guard containerView.bounds.contains(pointInContainer) else {
+			return event
+		}
+
+		switch event.type {
+		case .swipe:
+			// Three-finger "swipe between pages" arrives as a discrete event.
+			return performSwipe(deltaX: event.deltaX) ? nil : event
+		case .scrollWheel:
+			return handleScrollSwipe(event)
+		default:
+			return event
+		}
+	}
+
+	/// Two-finger swipe-navigation arrives as a scroll gesture; accumulate the
+	/// horizontal travel and fire once it clearly dominates the vertical.
+	func handleScrollSwipe(_ event: NSEvent) -> NSEvent? {
+		guard event.hasPreciseScrollingDeltas else {
+			return event
+		}
+
+		switch event.phase {
+		case .began:
+			swipeTracking = true
+			swipeFired = false
+			swipeAccumX = 0
+			swipeAccumY = 0
+		case .changed:
+			guard swipeTracking, !swipeFired else {
+				break
+			}
+			swipeAccumX += event.scrollingDeltaX
+			swipeAccumY += event.scrollingDeltaY
+			if abs(swipeAccumX) > Self.swipeHorizontalThreshold, abs(swipeAccumX) > abs(swipeAccumY) * 2 {
+				// scrollingDeltaX is negative when the fingers move right-to-left.
+				let deltaX: CGFloat = swipeAccumX < 0 ? -1 : 1
+				if performSwipe(deltaX: deltaX) {
+					swipeFired = true
+					swipeTracking = false
+					return nil
+				}
+			}
+		case .ended, .cancelled:
+			swipeTracking = false
+		default:
+			break
+		}
+		return event
+	}
+
+	@discardableResult
+	func performSwipe(deltaX: CGFloat) -> Bool {
+		switch SwipeDecider.action(deltaX: deltaX, isBrowsing: isShowingBrowser) {
+		case .openWeb:
+			guard let url = currentWebViewController.currentArticleURL else {
+				return false
+			}
+			delegate?.detailViewController(self, didRequestInAppBrowserFor: url)
+			return true
+		case .returnToArticle:
+			if let delegate {
+				delegate.detailViewControllerDidRequestArticle(self)
+			} else {
+				dismissBrowser()
+			}
+			return true
+		case .ignore:
+			return false
+		}
 	}
 }
 

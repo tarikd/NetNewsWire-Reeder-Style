@@ -52,6 +52,26 @@ final class KeyboardShortcutStorePersistenceTests: XCTestCase {
 		XCTAssertNil(cmd?.currentKey)   // explicitly unbound, not the default
 	}
 
+	func testSetBindingResolvesCrossContextConflict() throws {
+		let defaults = makeDefaults()
+		defer { cleanUp(defaults) }
+		let store = KeyboardShortcutStore(userDefaults: defaults)
+
+		let globalAction = try XCTUnwrap(firstGlobalAction(store))
+		let timelineAction = try XCTUnwrap(store.commands(for: .timeline).first?.action)
+
+		// Bind a key in .global, then steal the SAME key for a .timeline action.
+		store.setBinding(key(106 /* j */), forAction: globalAction, in: .global)
+		let reassigned = store.setBinding(key(106), forAction: timelineAction, in: .timeline)
+
+		// The global binding must have been unbound, and the user told about the reassignment.
+		XCTAssertNotNil(reassigned)
+		let globalCmd = store.commands(for: .global).first { $0.action == globalAction }
+		XCTAssertNil(globalCmd?.currentKey)
+		let timelineCmd = store.commands(for: .timeline).first { $0.action == timelineAction }
+		XCTAssertEqual(timelineCmd?.currentKey, key(106))
+	}
+
 	func testRestoreDefaultsClearsOverrides() throws {
 		let defaults = makeDefaults()
 		defer { cleanUp(defaults) }

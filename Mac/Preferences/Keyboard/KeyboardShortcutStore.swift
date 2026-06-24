@@ -62,6 +62,13 @@ import RSCore
 		return nil
 	}
 
+	// PURE: which contexts share the dispatch path with `context`, so a key bound in one
+	// shadows the same key in the others. .global is checked everywhere; every other context
+	// is checked alongside .global but not alongside its siblings.
+	nonisolated static func relevantConflictContexts(for context: Context) -> [Context] {
+		context == .global ? Context.allCases : [context, .global]
+	}
+
 	func commands(for context: Context) -> [Command] {
 		if let cached = cache[context] { return cached }
 		let defaults = Self.loadDefaults(for: context)
@@ -77,11 +84,19 @@ import RSCore
 
 	@discardableResult
 	func setBinding(_ key: KeyboardKey, forAction action: String, in context: Context) -> String? {
-		let reassigned = Self.conflictingAction(for: key, assigningTo: action, in: commands(for: context))
-		if let reassigned { writeOverride(.some(nil), forAction: reassigned, in: context) }   // unbind the conflicting command
+		var reassignedTitle: String?
+		for otherContext in Self.relevantConflictContexts(for: context) {
+			let excludedAction = (otherContext == context) ? action : nil   // don't unbind the command we're assigning
+			for c in commands(for: otherContext) where c.action != excludedAction {
+				if c.currentKey == key {
+					writeOverride(.some(nil), forAction: c.action, in: otherContext)   // unbind the conflicting command
+					reassignedTitle = (otherContext == context) ? c.title : "\(c.title) (\(otherContext.displayName))"
+				}
+			}
+		}
 		writeOverride(.some(key), forAction: action, in: context)
 		invalidateAndNotify()
-		return reassigned
+		return reassignedTitle
 	}
 
 	func clearBinding(forAction action: String, in context: Context) {

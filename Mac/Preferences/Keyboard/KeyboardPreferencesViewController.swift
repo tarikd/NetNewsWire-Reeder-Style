@@ -2,8 +2,8 @@
 //  KeyboardPreferencesViewController.swift
 //  NetNewsWire
 //
-//  Programmatic preferences pane that lists reading/navigation commands grouped
-//  by context and lets the user remap, clear, or restore keyboard shortcuts.
+//  Programmatic preferences pane that lists reading/navigation commands in a tab
+//  per context and lets the user remap, clear, or restore keyboard shortcuts.
 //
 
 import AppKit
@@ -12,9 +12,12 @@ import RSCore
 @MainActor final class KeyboardPreferencesViewController: NSViewController {
 
 	private let store = KeyboardShortcutStore.shared
-	private let contentStack = NSStackView()
+	private let tabView = NSTabView()
 	private let statusLabel = NSTextField(labelWithString: "")
 	private nonisolated(unsafe) var changeObserver: NSObjectProtocol?
+
+	// The vertical stack of rows for each context, keyed so we can rebuild any tab.
+	private var rowStacks: [KeyboardShortcutStore.Context: NSStackView] = [:]
 
 	private let titleColumnWidth = CGFloat(220.0)
 	private let preferredWidth = CGFloat(512.0)
@@ -28,22 +31,10 @@ import RSCore
 	override func loadView() {
 		let rootView = NSView(frame: NSRect(x: 0, y: 0, width: preferredWidth, height: 480.0))
 
-		let scrollView = NSScrollView()
-		scrollView.translatesAutoresizingMaskIntoConstraints = false
-		scrollView.hasVerticalScroller = true
-		scrollView.drawsBackground = false
-		scrollView.autohidesScrollers = true
-
-		contentStack.orientation = .vertical
-		contentStack.alignment = .leading
-		contentStack.spacing = 6.0
-		contentStack.translatesAutoresizingMaskIntoConstraints = false
-		contentStack.edgeInsets = NSEdgeInsets(top: 16, left: 20, bottom: 16, right: 20)
-
-		let documentView = NSView()
-		documentView.translatesAutoresizingMaskIntoConstraints = false
-		documentView.addSubview(contentStack)
-		scrollView.documentView = documentView
+		tabView.translatesAutoresizingMaskIntoConstraints = false
+		for context in KeyboardShortcutStore.Context.allCases {
+			tabView.addTabViewItem(makeTab(for: context))
+		}
 
 		statusLabel.translatesAutoresizingMaskIntoConstraints = false
 		statusLabel.textColor = .secondaryLabelColor
@@ -63,24 +54,18 @@ import RSCore
 		bottomBar.spacing = 8.0
 		bottomBar.translatesAutoresizingMaskIntoConstraints = false
 
-		rootView.addSubview(scrollView)
+		rootView.addSubview(tabView)
 		rootView.addSubview(bottomBar)
 
 		NSLayoutConstraint.activate([
-			scrollView.topAnchor.constraint(equalTo: rootView.topAnchor),
-			scrollView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
-			scrollView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
+			tabView.topAnchor.constraint(equalTo: rootView.topAnchor, constant: 12.0),
+			tabView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor, constant: 12.0),
+			tabView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor, constant: -12.0),
 
-			bottomBar.topAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: 8.0),
+			bottomBar.topAnchor.constraint(equalTo: tabView.bottomAnchor, constant: 8.0),
 			bottomBar.leadingAnchor.constraint(equalTo: rootView.leadingAnchor, constant: 20.0),
 			bottomBar.trailingAnchor.constraint(equalTo: rootView.trailingAnchor, constant: -20.0),
-			bottomBar.bottomAnchor.constraint(equalTo: rootView.bottomAnchor, constant: -16.0),
-
-			documentView.topAnchor.constraint(equalTo: contentStack.topAnchor),
-			documentView.bottomAnchor.constraint(equalTo: contentStack.bottomAnchor),
-			documentView.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
-			documentView.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
-			documentView.widthAnchor.constraint(equalTo: scrollView.widthAnchor)
+			bottomBar.bottomAnchor.constraint(equalTo: rootView.bottomAnchor, constant: -16.0)
 		])
 
 		self.view = rootView
@@ -94,6 +79,42 @@ import RSCore
 		}
 
 		reload()
+	}
+
+	// MARK: - Tabs
+
+	private func makeTab(for context: KeyboardShortcutStore.Context) -> NSTabViewItem {
+		let scrollView = NSScrollView()
+		scrollView.translatesAutoresizingMaskIntoConstraints = false
+		scrollView.hasVerticalScroller = true
+		scrollView.drawsBackground = false
+		scrollView.autohidesScrollers = true
+
+		let rowStack = NSStackView()
+		rowStack.orientation = .vertical
+		rowStack.alignment = .leading
+		rowStack.spacing = 6.0
+		rowStack.translatesAutoresizingMaskIntoConstraints = false
+		rowStack.edgeInsets = NSEdgeInsets(top: 16, left: 20, bottom: 16, right: 20)
+		rowStacks[context] = rowStack
+
+		let documentView = NSView()
+		documentView.translatesAutoresizingMaskIntoConstraints = false
+		documentView.addSubview(rowStack)
+		scrollView.documentView = documentView
+
+		NSLayoutConstraint.activate([
+			documentView.topAnchor.constraint(equalTo: rowStack.topAnchor),
+			documentView.bottomAnchor.constraint(equalTo: rowStack.bottomAnchor),
+			documentView.leadingAnchor.constraint(equalTo: rowStack.leadingAnchor),
+			documentView.trailingAnchor.constraint(equalTo: rowStack.trailingAnchor),
+			documentView.widthAnchor.constraint(equalTo: scrollView.widthAnchor)
+		])
+
+		let item = NSTabViewItem(identifier: context.rawValue)
+		item.label = context.displayName
+		item.view = scrollView
+		return item
 	}
 
 	// MARK: - Actions
@@ -115,19 +136,16 @@ import RSCore
 	// MARK: - Building rows
 
 	private func reload() {
-		for view in contentStack.arrangedSubviews {
-			contentStack.removeArrangedSubview(view)
-			view.removeFromSuperview()
-		}
-
 		for context in KeyboardShortcutStore.Context.allCases {
-			let commands = dedupedCommands(for: context)
-			if commands.isEmpty { continue }
+			guard let rowStack = rowStacks[context] else { continue }
 
-			contentStack.addArrangedSubview(makeSectionHeader(context.displayName))
+			for view in rowStack.arrangedSubviews {
+				rowStack.removeArrangedSubview(view)
+				view.removeFromSuperview()
+			}
 
-			for command in commands {
-				contentStack.addArrangedSubview(makeRow(for: command, in: context))
+			for command in dedupedCommands(for: context) {
+				rowStack.addArrangedSubview(makeRow(for: command, in: context))
 			}
 		}
 	}
@@ -141,16 +159,6 @@ import RSCore
 			result.append(command)
 		}
 		return result
-	}
-
-	private func makeSectionHeader(_ text: String) -> NSView {
-		let label = NSTextField(labelWithString: text)
-		label.font = .boldSystemFont(ofSize: NSFont.systemFontSize)
-		label.translatesAutoresizingMaskIntoConstraints = false
-		let container = NSStackView(views: [label])
-		container.orientation = .horizontal
-		container.edgeInsets = NSEdgeInsets(top: 10, left: 0, bottom: 2, right: 0)
-		return container
 	}
 
 	private func makeRow(for command: KeyboardShortcutStore.Command,

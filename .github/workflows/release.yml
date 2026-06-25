@@ -38,6 +38,13 @@ jobs:
         run: |
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            # Derive the app version from the tag (vX.Y.Z). The marketing string
+            # is X.Y.Z; the build number is a monotonic integer X*10000+Y*100+Z
+            # that Sparkle compares to decide whether an update is newer.
+            SEMVER="${GITHUB_REF_NAME#v}"
+            IFS=. read -r MA MI PA <<< "$SEMVER"
+            echo "APP_MARKETING_VERSION=$SEMVER" >> "$GITHUB_ENV"
+            echo "APP_BUILD_VERSION=$(( ${MA:-0} * 10000 + ${MI:-0} * 100 + ${PA:-0} ))" >> "$GITHUB_ENV"
           else
             echo "version=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
           fi
@@ -100,6 +107,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # On tag builds, stamp the version derived from the tag so Sparkle can
+          # tell this build apart from the installed one. Untagged manual runs
+          # keep the project's default version.
+          VERSION_ARGS=()
+          if [ -n "${APP_BUILD_VERSION:-}" ]; then
+            VERSION_ARGS=( "MARKETING_VERSION=$APP_MARKETING_VERSION" "CURRENT_PROJECT_VERSION=$APP_BUILD_VERSION" )
+          fi
           xcodebuild build \
             -project NetNewsWire.xcodeproj \
             -scheme NetNewsWire \
@@ -115,6 +129,7 @@ jobs:
             ENABLE_HARDENED_RUNTIME=YES \
             CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
             OTHER_CODE_SIGN_FLAGS=--timestamp \
+            "${VERSION_ARGS[@]}" \
             | xcbeautify --renderer github-actions
           echo "APP_PATH=build/Build/Products/Release/NetNewsWire.app" >> "$GITHUB_ENV"
 
@@ -250,6 +265,34 @@ jobs:
           xcrun stapler staple "$DMG"
           xcrun stapler validate "$DMG"
 
+      - name: Build Sparkle appcast
+        if: env.SIGNED == 'true' && startsWith(github.ref, 'refs/tags/')
+        env:
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          DMG="${{ steps.dmg.outputs.path }}"
+          GEN=$(find build/SourcePackages/artifacts -type f -name generate_appcast -path "*/bin/*" | head -1)
+          if [ -z "$GEN" ]; then echo "generate_appcast not found under build/SourcePackages"; exit 1; fi
+
+          # generate_appcast reads each archive's version from the app bundle it
+          # mounts, signs it with the EdDSA key (from stdin), and writes
+          # appcast.xml whose enclosure URL is the prefix + the DMG filename —
+          # i.e. this tag's release asset.
+          WORK="$RUNNER_TEMP/appcast"
+          mkdir -p "$WORK"
+          cp "$DMG" "$WORK/"
+          PREFIX="https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/"
+          printf '%s' "$SPARKLE_ED_PRIVATE_KEY" | "$GEN" --ed-key-file - \
+            --download-url-prefix "$PREFIX" \
+            --link "https://github.com/${{ github.repository }}" \
+            "$WORK"
+
+          cp "$WORK/appcast.xml" appcast.xml
+          echo "=== appcast.xml ==="
+          cat appcast.xml
+
       - name: Upload DMG artifact (manual runs)
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
@@ -263,7 +306,9 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ steps.dmg.outputs.path }}
+          files: |
+            ${{ steps.dmg.outputs.path }}
+            appcast.xml
           generate_release_notes: true
           body: |
             **NetNewsWire — Reeder Style** ${{ steps.version.outputs.version }}

@@ -440,7 +440,12 @@ final class MainWindowController: NSWindowController, NSUserInterfaceValidations
 	}
 
 	@IBAction func markAllAsRead(_ sender: Any?) {
-		currentTimelineViewController?.markAllAsRead()
+		guard let timeline = currentTimelineViewController, timeline.canMarkAllAsRead() else {
+			return
+		}
+		timeline.confirmMarkAllAsRead {
+			timeline.markAllAsRead()
+		}
 	}
 
 	@IBAction func toggleRead(_ sender: Any?) {
@@ -501,8 +506,13 @@ final class MainWindowController: NSWindowController, NSUserInterfaceValidations
 	}
 
 	@IBAction func markAllAsReadAndGoToNextUnread(_ sender: Any?) {
-		currentTimelineViewController?.markAllAsRead {
-			self.nextUnread(sender)
+		guard let timeline = currentTimelineViewController, timeline.canMarkAllAsRead() else {
+			return
+		}
+		timeline.confirmMarkAllAsRead {
+			timeline.markAllAsRead {
+				self.nextUnread(sender)
+			}
 		}
 	}
 
@@ -687,6 +697,16 @@ extension MainWindowController: SidebarDelegate {
 	func sidebarInvalidatedRestorationState(_: SidebarViewController) {
 		Self.logger.debug("MainWindowController: sidebarInvalidatedRestorationState")
 		invalidateRestorableState()
+	}
+
+	func sidebarConfirmMarkAllAsRead(_: SidebarViewController, confirmed: @escaping () -> Void) {
+		// Host the confirmation banner in the timeline column. If there's no
+		// timeline (shouldn't happen in the main window), just proceed.
+		guard let timeline = currentTimelineViewController else {
+			confirmed()
+			return
+		}
+		timeline.confirmMarkAllAsRead(confirmed)
 	}
 }
 

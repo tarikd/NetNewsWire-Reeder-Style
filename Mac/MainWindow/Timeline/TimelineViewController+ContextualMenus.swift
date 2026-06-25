@@ -81,15 +81,17 @@ extension TimelineViewController {
 		guard !unreadArticles.isEmpty else {
 			return
 		}
-		guard let undoManager, let markReadCommand = MarkStatusCommand(
-			initialArticles: Array(unreadArticles),
-			markingRead: true,
-			undoManager: undoManager
-		) else {
-			return
-		}
 
-		runCommand(markReadCommand)
+		confirmMarkAllAsRead { [weak self] in
+			guard let self, let undoManager = self.undoManager, let markReadCommand = MarkStatusCommand(
+				initialArticles: Array(unreadArticles),
+				markingRead: true,
+				undoManager: undoManager
+			) else {
+				return
+			}
+			self.runCommand(markReadCommand)
+		}
 	}
 
 	@objc func openInBrowserFromContextualMenu(_ sender: Any?) {

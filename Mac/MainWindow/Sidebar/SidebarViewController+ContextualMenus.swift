@@ -70,10 +70,16 @@ extension SidebarViewController {
 		}
 
 		let articles = unreadArticles(for: objects)
-		guard let undoManager = undoManager, let markReadCommand = MarkStatusCommand(initialArticles: Array(articles), markingRead: true, undoManager: undoManager) else {
+		guard !articles.isEmpty else {
 			return
 		}
-		runCommand(markReadCommand)
+
+		delegate?.sidebarConfirmMarkAllAsRead(self) { [weak self] in
+			guard let self, let undoManager = self.undoManager, let markReadCommand = MarkStatusCommand(initialArticles: Array(articles), markingRead: true, undoManager: undoManager) else {
+				return
+			}
+			self.runCommand(markReadCommand)
+		}
 	}
 
 	@objc func deleteFromContextualMenu(_ sender: Any?) {

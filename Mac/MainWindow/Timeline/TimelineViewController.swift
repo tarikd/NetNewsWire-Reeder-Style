@@ -31,6 +31,11 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner, Unr
 
 	var sharingServicePickerDelegate: NSSharingServicePickerDelegate?
 
+	private static let markAllAsReadConfirmationHeight: CGFloat = 44
+	private var markAllAsReadConfirmationContainer: NSView?
+	private weak var markAllAsReadConfirmationView: MarkAllAsReadConfirmationView?
+	private var markAllAsReadConfirmationTopConstraint: NSLayoutConstraint?
+
 	private var readFilterEnabledTable = [SidebarItemIdentifier: Bool]()
 
 	var isReadFiltered: Bool? {
@@ -267,6 +272,87 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner, Unr
 			return
 		}
 		runCommand(markReadCommand)
+	}
+
+	/// Slides a confirmation banner down over the top of the timeline column and
+	/// runs `onConfirm` only if the user chooses to proceed. Callers should make
+	/// sure there is something to mark before calling this, so the banner never
+	/// appears with nothing to confirm.
+	func confirmMarkAllAsRead(_ onConfirm: @escaping () -> Void) {
+		// One banner at a time; re-triggering keeps the existing one.
+		guard markAllAsReadConfirmationContainer == nil else {
+			return
+		}
+
+		let height = Self.markAllAsReadConfirmationHeight
+
+		// A clipping container pinned to the top of the column hides the banner
+		// while it sits offscreen above its starting position.
+		let container = NSView()
+		container.translatesAutoresizingMaskIntoConstraints = false
+		container.wantsLayer = true
+		container.layer?.masksToBounds = true
+		view.addSubview(container)
+
+		let banner = MarkAllAsReadConfirmationView(confirmHandler: { [weak self] in
+			self?.dismissMarkAllAsReadConfirmation()
+			onConfirm()
+		}, cancelHandler: { [weak self] in
+			self?.dismissMarkAllAsReadConfirmation()
+		})
+		container.addSubview(banner)
+
+		let topConstraint = banner.topAnchor.constraint(equalTo: container.topAnchor, constant: -height)
+		NSLayoutConstraint.activate([
+			container.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+			container.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+			container.topAnchor.constraint(equalTo: view.topAnchor),
+			container.heightAnchor.constraint(equalToConstant: height),
+
+			banner.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+			banner.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+			banner.heightAnchor.constraint(equalToConstant: height),
+			topConstraint
+		])
+		view.layoutSubtreeIfNeeded()
+
+		markAllAsReadConfirmationContainer = container
+		markAllAsReadConfirmationView = banner
+		markAllAsReadConfirmationTopConstraint = topConstraint
+
+		NSAnimationContext.runAnimationGroup { context in
+			context.duration = 0.2
+			context.allowsImplicitAnimation = true
+			topConstraint.animator().constant = 0
+			view.layoutSubtreeIfNeeded()
+		}
+
+		view.window?.makeFirstResponder(banner)
+	}
+
+	private func dismissMarkAllAsReadConfirmation() {
+		guard let container = markAllAsReadConfirmationContainer, let topConstraint = markAllAsReadConfirmationTopConstraint else {
+			return
+		}
+		let banner = markAllAsReadConfirmationView
+		markAllAsReadConfirmationContainer = nil
+		markAllAsReadConfirmationView = nil
+		markAllAsReadConfirmationTopConstraint = nil
+
+		if let window = view.window, let banner, window.firstResponder === banner {
+			window.makeFirstResponder(tableView)
+		}
+
+		NSAnimationContext.runAnimationGroup({ context in
+			context.duration = 0.2
+			context.allowsImplicitAnimation = true
+			topConstraint.animator().constant = -Self.markAllAsReadConfirmationHeight
+			view.layoutSubtreeIfNeeded()
+		}, completionHandler: {
+			MainActor.assumeIsolated {
+				container.removeFromSuperview()
+			}
+		})
 	}
 
 	func canMarkAllAsRead() -> Bool {

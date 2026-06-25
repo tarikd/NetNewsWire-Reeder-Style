@@ -21,6 +21,7 @@ extension Notification.Name {
 	func sidebarSelectionDidChange(_: SidebarViewController, selectedObjects: [AnyObject]?)
 	func unreadCount(for: AnyObject) -> Int
 	func sidebarInvalidatedRestorationState(_: SidebarViewController)
+	func sidebarConfirmMarkAllAsRead(_: SidebarViewController, confirmed: @escaping () -> Void)
 }
 
 @objc final class SidebarViewController: NSViewController, NSOutlineViewDelegate, NSMenuDelegate, UndoableCommandRunner {

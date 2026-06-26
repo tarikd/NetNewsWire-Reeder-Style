@@ -1298,10 +1298,9 @@ private extension MainWindowController {
 	}
 
 	func validateToggleArticleExtractor(_ item: NSValidatedUserInterfaceItem) -> Bool {
-		guard !AppDefaults.shared.isDeveloperBuild else {
-			return false
-		}
-
+		// Reader View runs entirely on-device (Mozilla Readability) in this fork, so
+		// it works in every build — including developer builds, which upstream
+		// disabled because Reader View there relied on a hosted parser and API key.
 		guard let toolbarItem = item as? NSToolbarItem, let toolbarButton = toolbarItem.view as? ArticleExtractorButton else {
 			if let menuItem = item as? NSMenuItem {
 				menuItem.state = isShowingExtractedArticle ? .on : .off

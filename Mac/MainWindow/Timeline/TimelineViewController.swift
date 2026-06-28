@@ -444,6 +444,10 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner, Unr
 
 	@IBAction func selectNextUp(_ sender: Any?) {
 		guard let lastSelectedRow = tableView.selectedRowIndexes.last else {
+			// Nothing selected yet (e.g. just after picking a feed): start at the top.
+			if tableView.numberOfRows > 0 {
+				tableView.selectRowAndScrollToVisible(0)
+			}
 			return
 		}
 
@@ -465,6 +469,10 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner, Unr
 
 	@IBAction func selectNextDown(_ sender: Any?) {
 		guard let firstSelectedRow = tableView.selectedRowIndexes.first else {
+			// Nothing selected yet (e.g. just after picking a feed): start at the top.
+			if tableView.numberOfRows > 0 {
+				tableView.selectRowAndScrollToVisible(0)
+			}
 			return
 		}
 

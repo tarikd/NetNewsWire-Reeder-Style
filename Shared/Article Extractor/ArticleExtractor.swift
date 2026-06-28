@@ -199,11 +199,13 @@ public enum ArticleExtractorState: Sendable {
 			function hasContent(article) {
 				return !!(article && article.content && article.textContent && article.textContent.trim().length > 0);
 			}
-			function stripJunk(doc) {
+			function stripJunk(doc, keep) {
 				if (!JUNK.length) { return; }
 				try {
 					doc.querySelectorAll(JUNK.join(",")).forEach(function(node) {
-						if (node && node.parentNode) { node.parentNode.removeChild(node); }
+						if (node && node.parentNode && (!keep || keep.indexOf(node) === -1)) {
+							node.parentNode.removeChild(node);
+						}
 					});
 				} catch (selectorError) { /* a bad selector shouldn't abort extraction */ }
 			}
@@ -220,7 +222,12 @@ public enum ArticleExtractorState: Sendable {
 						nodes.forEach(function(node) { html += node.outerHTML; });
 						var isolated = document.cloneNode(true);
 						isolated.body.innerHTML = html;
-						stripJunk(isolated);
+						// Strip junk inside the container(s), but never the containers
+						// themselves: a site may name its article body with a class our
+						// generic junk list matches (e.g. Mediapart's
+						// paywall-restricted-content).
+						var keep = Array.prototype.slice.call(isolated.body.children);
+						stripJunk(isolated, keep);
 						var whitelisted = parse(isolated);
 						if (hasContent(whitelisted)) { return JSON.stringify(whitelisted); }
 					}

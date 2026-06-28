@@ -19,11 +19,13 @@ import RSCore
 
 		let key = KeyboardKey(with: event)
 		let shortcuts = KeyboardShortcutStore.shared.effectiveShortcuts(for: .detail)
-		guard let matchingShortcut = KeyboardShortcut.findMatchingShortcut(in: shortcuts, key: key) else {
-			return false
+		if let matchingShortcut = KeyboardShortcut.findMatchingShortcut(in: shortcuts, key: key) {
+			matchingShortcut.perform(with: view)
+			return true
 		}
 
-		matchingShortcut.perform(with: view)
-		return true
+		// Fall through to article-list navigation so commands like "Select Next
+		// Article" work while reading an article (the detail view has focus).
+		return MainWindowKeyboardHandler.shared.timelineFallthrough(event, in: view)
 	}
 }

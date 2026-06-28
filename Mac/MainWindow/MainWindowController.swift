@@ -420,7 +420,7 @@ final class MainWindowController: NSWindowController, NSUserInterfaceValidations
 			return
 		}
 		timelineViewController.selectNextDown(sender)
-		timelineViewController.focus()
+		moveFocusToTimelineUnlessReadingArticle()
 	}
 
 	@IBAction func selectNextUp(_ sender: Any?) {
@@ -428,7 +428,18 @@ final class MainWindowController: NSWindowController, NSUserInterfaceValidations
 			return
 		}
 		timelineViewController.selectNextUp(sender)
-		timelineViewController.focus()
+		moveFocusToTimelineUnlessReadingArticle()
+	}
+
+	// When navigating from the sidebar, move focus into the article list. But when
+	// the article view has focus (reading), keep it there so the reader can still
+	// scroll — the timeline selection and detail still advance either way.
+	private func moveFocusToTimelineUnlessReadingArticle() {
+		if let responder = window?.firstResponder as? NSView, let detailView = detailViewController?.view,
+		   responder === detailView || responder.isDescendant(of: detailView) {
+			return
+		}
+		currentTimelineViewController?.focus()
 	}
 
 	@IBAction func nextUnread(_ sender: Any?) {

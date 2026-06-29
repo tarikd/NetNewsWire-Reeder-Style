@@ -29,15 +29,18 @@ typealias FetchRequestOperationResultBlock = (Set<Article>, FetchRequestOperatio
 
 	let id: Int
 	let readFilterEnabledTable: [SidebarItemIdentifier: Bool]
+	/// When true, every fetcher hides read articles, overriding the per-item table.
+	let hideReadArticlesEverywhere: Bool
 	let resultBlock: FetchRequestOperationResultBlock
 	var isCanceled = false
 	var isFinished = false
 	private let fetchers: [ArticleFetcher]
 
-	init(id: Int, readFilterEnabledTable: [SidebarItemIdentifier: Bool], fetchers: [ArticleFetcher], resultBlock: @escaping FetchRequestOperationResultBlock) {
+	init(id: Int, readFilterEnabledTable: [SidebarItemIdentifier: Bool], hideReadArticlesEverywhere: Bool = false, fetchers: [ArticleFetcher], resultBlock: @escaping FetchRequestOperationResultBlock) {
 		precondition(Thread.isMainThread)
 		self.id = id
 		self.readFilterEnabledTable = readFilterEnabledTable
+		self.hideReadArticlesEverywhere = hideReadArticlesEverywhere
 		self.fetchers = fetchers
 		self.resultBlock = resultBlock
 	}
@@ -92,10 +95,17 @@ typealias FetchRequestOperationResultBlock = (Set<Article>, FetchRequestOperatio
 				}
 			}
 
+			@MainActor func fetchUnreadOnly(_ fetcher: ArticleFetcher) -> Bool {
+				guard let sidebarItem = fetcher as? SidebarItem else {
+					return true
+				}
+				return self.hideReadArticlesEverywhere || sidebarItem.readFiltered(readFilterEnabledTable: self.readFilterEnabledTable)
+			}
+
 			for fetcher in fetchers {
 				let articles: Set<Article>
 
-				if (fetcher as? SidebarItem)?.readFiltered(readFilterEnabledTable: readFilterEnabledTable) ?? true {
+				if fetchUnreadOnly(fetcher) {
 					articles = await fetcher.fetchUnreadArticlesAsync()
 				} else {
 					articles = await fetcher.fetchArticlesAsync()

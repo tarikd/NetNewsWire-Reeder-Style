@@ -33,6 +33,10 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner, Unr
 
 	private var readFilterEnabledTable = [SidebarItemIdentifier: Bool]()
 
+	/// When true (driven by the sidebar's Unread filter), every feed and folder
+	/// hides read articles, overriding the per-feed setting.
+	private(set) var hideReadArticlesEverywhere = false
+
 	var isReadFiltered: Bool? {
 		guard representedObjects?.count == 1, let timelineFeed = representedObjects?.first as? SidebarItem else {
 			return nil
@@ -40,10 +44,34 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner, Unr
 		guard timelineFeed.defaultReadFilterType != .alwaysRead else {
 			return nil
 		}
+		if hideReadArticlesEverywhere {
+			return true
+		}
 		if let sidebarItemID = timelineFeed.sidebarItemID, let readFiltered = readFilterEnabledTable[sidebarItemID] {
 			return readFiltered
 		}
 		return timelineFeed.defaultReadFilterType == .read
+	}
+
+	/// Sets the global "hide read articles" override (the sidebar Unread filter).
+	/// Pass `refetch: true` when the selection isn't also changing (e.g. the user
+	/// just flipped the sidebar toggle), so the current timeline reloads.
+	func setHideReadArticlesEverywhere(_ value: Bool, refetch: Bool) {
+		hideReadArticlesEverywhere = value
+		// Reload when asked, even if the value was already synced by a selection
+		// change — flipping the sidebar toggle must refresh the current timeline.
+		if refetch {
+			fetchAndReplacePreservingSelection()
+		}
+	}
+
+	/// Whether the given fetcher should return unread articles only, taking the
+	/// global override into account.
+	private func shouldFetchUnreadOnly(for fetcher: ArticleFetcher) -> Bool {
+		guard let sidebarItem = fetcher as? SidebarItem else {
+			return true
+		}
+		return hideReadArticlesEverywhere || sidebarItem.readFiltered(readFilterEnabledTable: readFilterEnabledTable)
 	}
 
 	var isCleanUpAvailable: Bool {
@@ -1266,12 +1294,12 @@ private extension TimelineViewController {
 		}
 
 		var fetchedArticles = Set<Article>()
-		for fetchers in fetchers {
-			if (fetchers as? SidebarItem)?.readFiltered(readFilterEnabledTable: readFilterEnabledTable) ?? true {
-				let articles = fetchers.fetchUnreadArticles()
+		for fetcher in fetchers {
+			if shouldFetchUnreadOnly(for: fetcher) {
+				let articles = fetcher.fetchUnreadArticles()
 				fetchedArticles.formUnion(articles)
 			} else {
-				let articles = fetchers.fetchArticles()
+				let articles = fetcher.fetchArticles()
 				fetchedArticles.formUnion(articles)
 			}
 		}
@@ -1284,7 +1312,7 @@ private extension TimelineViewController {
 		precondition(Thread.isMainThread)
 		cancelPendingAsyncFetches()
 		let fetchers = representedObjects.compactMap { $0 as? ArticleFetcher }
-		let fetchOperation = FetchRequestOperation(id: fetchSerialNumber, readFilterEnabledTable: readFilterEnabledTable, fetchers: fetchers) { [weak self] (articles, operation) in
+		let fetchOperation = FetchRequestOperation(id: fetchSerialNumber, readFilterEnabledTable: readFilterEnabledTable, hideReadArticlesEverywhere: hideReadArticlesEverywhere, fetchers: fetchers) { [weak self] (articles, operation) in
 			precondition(Thread.isMainThread)
 			guard !operation.isCanceled, let strongSelf = self, operation.id == strongSelf.fetchSerialNumber else {
 				return

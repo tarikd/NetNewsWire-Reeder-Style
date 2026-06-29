@@ -708,6 +708,10 @@ extension MainWindowController: NSWindowDelegate {
 extension MainWindowController: SidebarDelegate {
 
 	func sidebarSelectionDidChange(_: SidebarViewController, selectedObjects: [AnyObject]?) {
+		// Keep the timeline's global read filter in step with the sidebar's Unread
+		// toggle before fetching, so every newly selected feed/folder honors it.
+		timelineContainerViewController?.setHideReadArticlesEverywhere(sidebarViewController?.isReadFiltered ?? false, refetch: false)
+
 		// Don’t update the timeline if it already has those objects.
 		let representedObjectsAreTheSame = timelineContainerViewController?.regularTimelineViewControllerHasRepresentedObjects(selectedObjects) ?? false
 		if !representedObjectsAreTheSame {
@@ -738,10 +742,9 @@ extension MainWindowController: SidebarDelegate {
 	}
 
 	func sidebarDidChangeReadFilter(_: SidebarViewController, unreadOnly: Bool) {
-		// Keep the article list's read filter in step with the sidebar's.
-		if let current = timelineContainerViewController?.isReadFiltered, current != unreadOnly {
-			timelineContainerViewController?.toggleReadFilter()
-		}
+		// Hide/show read articles across every feed and folder, and reload the
+		// current timeline to reflect it immediately.
+		timelineContainerViewController?.setHideReadArticlesEverywhere(unreadOnly, refetch: true)
 	}
 }
 

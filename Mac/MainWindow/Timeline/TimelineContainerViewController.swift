@@ -92,6 +92,14 @@ final class TimelineContainerViewController: NSViewController {
 		updateReadFilterButton()
 	}
 
+	/// Mirrors the sidebar's Unread filter so every feed/folder hides read
+	/// articles. `refetch` reloads the current timeline when only the filter
+	/// changed (no selection change to trigger a fetch).
+	func setHideReadArticlesEverywhere(_ value: Bool, refetch: Bool) {
+		regularTimelineViewController.setHideReadArticlesEverywhere(value, refetch: refetch)
+		updateReadFilterButton()
+	}
+
 	func showTimeline(for mode: TimelineSourceMode) {
 		currentTimelineViewController = timelineViewController(for: mode)
 	}

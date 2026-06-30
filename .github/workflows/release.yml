@@ -312,14 +312,19 @@ jobs:
             RANGE="$CURRENT"
           fi
           NOTES_FILE="$RUNNER_TEMP/release-notes.html"
+          # Drop generic upstream housekeeping subjects so synced releases read
+          # cleanly (e.g. "Update appcasts", "Bump version", "Write release notes").
+          HOUSEKEEPING='^(update (appcasts?|status|version)|bump version|write release notes|update release notes|let xcode add)'
           {
             echo "<h2>Changes in ${CURRENT#v}</h2>"
             echo "<ul>"
-            git log --no-merges --pretty=format:'%s' "$RANGE" | while IFS= read -r subject || [ -n "$subject" ]; do
-              [ -n "$subject" ] || continue
-              esc=$(printf '%s' "$subject" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')
-              echo "<li>${esc}</li>"
-            done
+            git log --no-merges --pretty=format:'%s' "$RANGE" \
+              | { grep -ivE "$HOUSEKEEPING" || true; } \
+              | while IFS= read -r subject || [ -n "$subject" ]; do
+                  [ -n "$subject" ] || continue
+                  esc=$(printf '%s' "$subject" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')
+                  echo "<li>${esc}</li>"
+                done
             echo "</ul>"
           } > "$NOTES_FILE"
           echo "=== release notes ==="

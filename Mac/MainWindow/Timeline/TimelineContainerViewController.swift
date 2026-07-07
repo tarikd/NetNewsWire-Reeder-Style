@@ -14,6 +14,9 @@ import Articles
 	func timelineSelectionDidChange(_: TimelineContainerViewController, articles: [Article]?, mode: TimelineSourceMode)
 	func timelineRequestedFeedSelection(_: TimelineContainerViewController, feed: Feed)
 	func timelineInvalidatedRestorationState(_: TimelineContainerViewController)
+	/// The user pressed Select Next Article on the last article. Return true if
+	/// the delegate advanced to another feed/folder.
+	func timelineContainerWantsNextFeed(_: TimelineContainerViewController) -> Bool
 }
 
 final class TimelineContainerViewController: NSViewController {
@@ -168,6 +171,10 @@ extension TimelineContainerViewController: TimelineDelegate {
 
 	func timelineInvalidatedRestorationState(_: TimelineViewController) {
 		delegate?.timelineInvalidatedRestorationState(self)
+	}
+
+	func timelineViewControllerWantsNextFeed(_: TimelineViewController) -> Bool {
+		return delegate?.timelineContainerWantsNextFeed(self) ?? false
 	}
 
 }

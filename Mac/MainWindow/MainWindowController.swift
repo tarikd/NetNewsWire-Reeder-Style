@@ -789,6 +789,21 @@ extension MainWindowController: TimelineContainerViewControllerDelegate {
 		invalidateRestorableState()
 	}
 
+	@discardableResult
+	func timelineContainerWantsNextFeed(_: TimelineContainerViewController) -> Bool {
+		// At the end of the timeline: move to the next feed/folder (respecting the
+		// Unread/All filter) and open its first article.
+		guard let sidebarViewController, sidebarViewController.canGoToNextRow() else {
+			return false
+		}
+		sidebarViewController.goToNextRow()
+		// The sidebar selection loads the new timeline synchronously; nothing is
+		// selected in it yet, so selectNextDown picks the first article.
+		currentTimelineViewController?.selectNextDown(nil)
+		currentTimelineViewController?.focus()
+		return true
+	}
+
 }
 
 // MARK: - NSSearchFieldDelegate

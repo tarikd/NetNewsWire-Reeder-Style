@@ -17,6 +17,9 @@ import Images
 	func timelineSelectionDidChange(_: TimelineViewController, selectedArticles: [Article]?)
 	func timelineRequestedFeedSelection(_: TimelineViewController, feed: Feed)
 	func timelineInvalidatedRestorationState(_: TimelineViewController)
+	/// The user pressed Select Next Article while the last article was selected.
+	/// Return true if the delegate advanced to another feed/folder instead.
+	func timelineViewControllerWantsNextFeed(_: TimelineViewController) -> Bool
 }
 
 enum TimelineShowFeedName: Sendable {
@@ -33,8 +36,10 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner, Unr
 
 	private var readFilterEnabledTable = [SidebarItemIdentifier: Bool]()
 
-	/// When true (driven by the sidebar's Unread filter), every feed and folder
-	/// hides read articles, overriding the per-feed setting.
+	/// Driven by the sidebar's Unread/All filter: `true` hides read articles
+	/// everywhere, `false` shows all articles everywhere. This is the global read
+	/// filter and overrides the per-feed defaults (so All shows read articles even
+	/// in folders, which otherwise default to hiding them).
 	private(set) var hideReadArticlesEverywhere = false
 
 	var isReadFiltered: Bool? {
@@ -44,13 +49,7 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner, Unr
 		guard timelineFeed.defaultReadFilterType != .alwaysRead else {
 			return nil
 		}
-		if hideReadArticlesEverywhere {
-			return true
-		}
-		if let sidebarItemID = timelineFeed.sidebarItemID, let readFiltered = readFilterEnabledTable[sidebarItemID] {
-			return readFiltered
-		}
-		return timelineFeed.defaultReadFilterType == .read
+		return hideReadArticlesEverywhere
 	}
 
 	/// Sets the global "hide read articles" override (the sidebar Unread filter).
@@ -65,13 +64,17 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner, Unr
 		}
 	}
 
-	/// Whether the given fetcher should return unread articles only, taking the
-	/// global override into account.
+	/// Whether the given fetcher should return unread articles only. Follows the
+	/// sidebar Unread/All filter globally; alwaysRead items (e.g. the Unread smart
+	/// feed) always fetch unread.
 	private func shouldFetchUnreadOnly(for fetcher: ArticleFetcher) -> Bool {
 		guard let sidebarItem = fetcher as? SidebarItem else {
 			return true
 		}
-		return hideReadArticlesEverywhere || sidebarItem.readFiltered(readFilterEnabledTable: readFilterEnabledTable)
+		if sidebarItem.defaultReadFilterType == .alwaysRead {
+			return true
+		}
+		return hideReadArticlesEverywhere
 	}
 
 	var isCleanUpAvailable: Bool {
@@ -505,6 +508,13 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner, Unr
 		}
 
 		let tableMaxIndex = tableView.numberOfRows - 1
+		// Already on the last article: hand off to the next feed/folder if the
+		// delegate can advance there.
+		if firstSelectedRow >= tableMaxIndex {
+			_ = delegate?.timelineViewControllerWantsNextFeed(self)
+			return
+		}
+
 		let nextRowIndex = firstSelectedRow + 1
 		if nextRowIndex >= tableMaxIndex {
 			tableView.scrollTo(row: tableMaxIndex, extraHeight: 0)

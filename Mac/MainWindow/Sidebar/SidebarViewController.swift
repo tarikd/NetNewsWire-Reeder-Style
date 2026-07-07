@@ -440,6 +440,24 @@ extension Notification.Name {
 		outlineView.scrollTo(row: row)
 	}
 
+	/// Whether there's a next selectable feed/folder after the current selection.
+	/// Respects the Unread/All filter automatically: in Unread mode the tree only
+	/// contains feeds/folders with unread articles.
+	func canGoToNextRow() -> Bool {
+		return nextSelectableRow() != nil
+	}
+
+	/// Selects the next feed/folder after the current selection (in sidebar order:
+	/// the remaining feeds in the current folder, then the next folder).
+	func goToNextRow() {
+		guard let row = nextSelectableRow() else {
+			return
+		}
+		NSCursor.setHiddenUntilMouseMoves(true)
+		outlineView.selectRowIndexes(IndexSet([row]), byExtendingSelection: false)
+		outlineView.scrollTo(row: row)
+	}
+
 	func focus() {
 		if splitViewItem?.isCollapsed == true { return }
 		outlineView.window?.makeFirstResponderUnlessDescendantIsFirstResponder(outlineView)
@@ -840,6 +858,34 @@ private extension SidebarViewController {
 			return true
 		}
 		return false
+	}
+
+	/// The next selectable feed row after the current selection, skipping account
+	/// group headers and folder rows (so navigation jumps straight into the next
+	/// folder's first feed rather than the folder's combined view). Because the
+	/// tree is filtered in Unread mode, this naturally honors the Unread/All filter.
+	func nextSelectableRow(wrappingToTop wrapping: Bool = false) -> Int? {
+		let numberOfRows = outlineView.numberOfRows
+		let startRow = outlineView.selectedRow + 1
+
+		let orderedRows: [Int]
+		if startRow == numberOfRows {
+			orderedRows = wrapping ? Array(0..<numberOfRows) : []
+		} else {
+			orderedRows = Array(startRow..<numberOfRows) + (wrapping ? Array(0..<startRow) : [])
+		}
+
+		for row in orderedRows {
+			if shouldSkipRow(row) || rowIsFolder(row) {
+				continue
+			}
+			return row
+		}
+		return nil
+	}
+
+	func rowIsFolder(_ row: Int) -> Bool {
+		return nodeForRow(row)?.representedObject is Folder
 	}
 
 	func nextSelectableRowWithUnreadArticle(wrappingToTop wrapping: Bool = false) -> Int? {

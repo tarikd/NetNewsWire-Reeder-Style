@@ -10,9 +10,24 @@
 
 import AppKit
 @preconcurrency import WebKit
+import RSCore
 
 extension Notification.Name {
 	static let DetailBrowserNavigationStateDidChange = Notification.Name("DetailBrowserNavigationStateDidChange")
+}
+
+/// A WKWebView that forwards key events to a keyboard delegate first, so app
+/// shortcuts (e.g. Select Next Article) work while browsing. Unmatched keys
+/// fall through to the web page as usual.
+final class BrowserWebView: WKWebView {
+	weak var keyboardDelegate: KeyboardDelegate?
+
+	override func keyDown(with event: NSEvent) {
+		if keyboardDelegate?.keydown(event, in: self) ?? false {
+			return
+		}
+		super.keyDown(with: event)
+	}
 }
 
 @MainActor protocol DetailBrowserViewControllerDelegate: AnyObject {
@@ -25,6 +40,7 @@ final class DetailBrowserViewController: NSViewController {
 	weak var delegate: DetailBrowserViewControllerDelegate?
 
 	private var webView: WKWebView!
+	private let keyboardDelegate = DetailKeyboardDelegate()
 	private let urlLabel = NSTextField(labelWithString: "")
 	private var urlContainer: NSView!
 	private var observations: [NSKeyValueObservation] = []
@@ -38,7 +54,9 @@ final class DetailBrowserViewController: NSViewController {
 
 	override func loadView() {
 		let configuration = WKWebViewConfiguration()
-		webView = WKWebView(frame: .zero, configuration: configuration)
+		let browserWebView = BrowserWebView(frame: .zero, configuration: configuration)
+		browserWebView.keyboardDelegate = keyboardDelegate
+		webView = browserWebView
 		webView.navigationDelegate = self
 		webView.translatesAutoresizingMaskIntoConstraints = false
 		// Use WebKit's default Safari user agent rather than NetNewsWire's

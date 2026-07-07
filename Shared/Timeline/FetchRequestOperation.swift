@@ -99,7 +99,10 @@ typealias FetchRequestOperationResultBlock = (Set<Article>, FetchRequestOperatio
 				guard let sidebarItem = fetcher as? SidebarItem else {
 					return true
 				}
-				return self.hideReadArticlesEverywhere || sidebarItem.readFiltered(readFilterEnabledTable: self.readFilterEnabledTable)
+				if sidebarItem.defaultReadFilterType == .alwaysRead {
+					return true
+				}
+				return self.hideReadArticlesEverywhere
 			}
 
 			for fetcher in fetchers {

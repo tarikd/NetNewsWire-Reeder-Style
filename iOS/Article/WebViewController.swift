@@ -645,7 +645,7 @@ private extension WebViewController {
 //		print("article.html written to \(fileURL.path)")
 
 		WebViewConfiguration.addContentBlockingRules(to: webView)
-		webView.loadHTMLString(html, baseURL: ArticleRenderer.page.baseURL)
+		webView.loadHTMLString(html, baseURL: URL(string: rendering.baseURL))
 	}
 
 	func finalScrollPosition(scrollingUp: Bool) -> CGFloat {

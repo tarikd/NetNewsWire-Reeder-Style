@@ -53,6 +53,16 @@ public enum ArticleExtractorState: Sendable {
 		// (e.g. a paywall login made in the in-app browser) carries into
 		// extraction and Readability sees the full article, not the free sample.
 		configuration.websiteDataStore = .default()
+		// Identify the app by appending to WebKit's native User-Agent rather than
+		// replacing it. Overriding `customUserAgent` with our bare UA drops the
+		// browser-engine token ("AppleWebKit … KHTML, like Gecko"); sites fronted by
+		// a CDN/WAF (e.g. motorsport.com behind CloudFront) then return a 403 error
+		// page, which WKWebView loads as a successful navigation, so Readability finds
+		// no article and extraction fails. `applicationNameForUserAgent` keeps the
+		// browser token, so the request isn't blocked.
+		if let userAgent = UserAgent.fromInfoPlist() {
+			configuration.applicationNameForUserAgent = userAgent
+		}
 		let userScript = WKUserScript(source: ReadabilityResource.javaScript,
 									  injectionTime: .atDocumentEnd,
 									  forMainFrameOnly: true)
@@ -60,9 +70,6 @@ public enum ArticleExtractorState: Sendable {
 
 		let webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 1024, height: 768), configuration: configuration)
 		webView.navigationDelegate = self
-		if let userAgent = UserAgent.fromInfoPlist() {
-			webView.customUserAgent = userAgent
-		}
 		self.webView = webView
 
 		timeoutTask = Task { [weak self] in

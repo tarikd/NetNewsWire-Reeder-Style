@@ -12,6 +12,11 @@ import RSCore
 
 final class DetailWebView: WKWebView {
 	weak var keyboardDelegate: KeyboardDelegate?
+
+	/// True when an editable element inside the page has focus. While typing in a
+	/// field we let WebKit handle keys instead of firing app shortcuts.
+	var isEditableElementFocused = false
+
 	private var isObservingResizeNotifications = false
 
 	private static let estimatedToolbarHeight: CGFloat = 52 // Height of macOS 26.2 icon-only toolbar
@@ -47,7 +52,7 @@ final class DetailWebView: WKWebView {
 	// MARK: - NSResponder
 
 	override func keyDown(with event: NSEvent) {
-		if keyboardDelegate?.keydown(event, in: self) ?? false {
+		if !isEditableElementFocused, keyboardDelegate?.keydown(event, in: self) ?? false {
 			return
 		}
 		super.keyDown(with: event)

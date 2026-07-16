@@ -22,8 +22,12 @@ extension Notification.Name {
 final class BrowserWebView: WKWebView {
 	weak var keyboardDelegate: KeyboardDelegate?
 
+	/// True when an editable element inside the page has focus. While typing in a
+	/// field we let WebKit handle keys instead of firing app shortcuts.
+	var isEditableElementFocused = false
+
 	override func keyDown(with event: NSEvent) {
-		if keyboardDelegate?.keydown(event, in: self) ?? false {
+		if !isEditableElementFocused, keyboardDelegate?.keydown(event, in: self) ?? false {
 			return
 		}
 		super.keyDown(with: event)
@@ -54,6 +58,10 @@ final class DetailBrowserViewController: NSViewController {
 
 	override func loadView() {
 		let configuration = WKWebViewConfiguration()
+		// Track editable-element focus so app shortcuts don't fire while the user
+		// types into a field on the page. Wrapped weakly to avoid a retain cycle.
+		configuration.userContentController.add(WeakScriptMessageHandler(self), name: EditableFocusTracker.messageName)
+		configuration.userContentController.addUserScript(EditableFocusTracker.userScript())
 		let browserWebView = BrowserWebView(frame: .zero, configuration: configuration)
 		browserWebView.keyboardDelegate = keyboardDelegate
 		webView = browserWebView
@@ -178,6 +186,11 @@ final class DetailBrowserViewController: NSViewController {
 
 extension DetailBrowserViewController: WKNavigationDelegate {
 
+	func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+		// A new page is loading; any previously focused field is gone.
+		(webView as? BrowserWebView)?.isEditableElementFocused = false
+	}
+
 	func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
 		showError(error)
 	}
@@ -201,5 +214,16 @@ extension DetailBrowserViewController: WKNavigationDelegate {
 			.replacingOccurrences(of: ">", with: "&gt;")
 		let html = "<body style=\"font: -apple-system; color: #888; padding: 2em;\">Could not load this page.<br><br>\(message)</body>"
 		webView.loadHTMLString(html, baseURL: nil)
+	}
+}
+
+// MARK: - WKScriptMessageHandler
+
+extension DetailBrowserViewController: WKScriptMessageHandler {
+
+	func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+		if message.name == EditableFocusTracker.messageName {
+			(webView as? BrowserWebView)?.isEditableElementFocused = (message.body as? Bool) ?? false
+		}
 	}
 }

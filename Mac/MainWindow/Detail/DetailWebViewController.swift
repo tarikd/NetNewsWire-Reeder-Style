@@ -95,6 +95,8 @@ final class DetailWebViewController: NSViewController {
 		configuration.userContentController.add(self, name: MessageName.windowDidScroll)
 		configuration.userContentController.add(self, name: MessageName.mouseDidEnter)
 		configuration.userContentController.add(self, name: MessageName.mouseDidExit)
+		configuration.userContentController.add(self, name: EditableFocusTracker.messageName)
+		configuration.userContentController.addUserScript(EditableFocusTracker.userScript())
 
 		webView = DetailWebView(frame: NSRect.zero, configuration: configuration)
 		webView.uiDelegate = self
@@ -191,6 +193,8 @@ extension DetailWebViewController: WKScriptMessageHandler {
 			delegate?.mouseDidEnter(self, link: link)
 		} else if message.name == MessageName.mouseDidExit {
 			delegate?.mouseDidExit(self)
+		} else if message.name == EditableFocusTracker.messageName {
+			webView.isEditableElementFocused = (message.body as? Bool) ?? false
 		}
 	}
 }
@@ -332,6 +336,7 @@ private extension DetailWebViewController {
 		var html = try! MacroProcessor.renderedText(withTemplate: ArticleRenderer.page.html, substitutions: substitutions)
 		html = ArticleRenderingSpecialCases.filterHTMLIfNeeded(baseURL: rendering.baseURL, html: html)
 		WebViewConfiguration.addContentBlockingRules(to: webView)
+		webView.isEditableElementFocused = false
 		webView.loadHTMLString(html, baseURL: URL(string: rendering.baseURL))
 	}
 

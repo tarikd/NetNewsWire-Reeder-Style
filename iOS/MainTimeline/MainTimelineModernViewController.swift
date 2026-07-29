@@ -23,7 +23,7 @@ final class MainTimelineModernViewController: UIViewController, UndoableCommandR
 	private var iconSize = IconSize.medium
 	private lazy var feedTapGestureRecognizer = UITapGestureRecognizer(target: self, action: #selector(showFeedInspector(_:)))
 	private lazy var filterButton = UIBarButtonItem(image: Assets.Images.filter, style: .plain, target: self, action: #selector(toggleFilter(_:)))
-	private lazy var firstUnreadButton = UIBarButtonItem(image: Assets.Images.nextUnread, style: .plain, target: self, action: #selector(firstUnread(_:)))
+	private lazy var nextUnreadButton = UIBarButtonItem(image: Assets.Images.nextUnread, style: .plain, target: self, action: #selector(nextUnread(_:)))
 	private let refreshProgressView = RefreshProgressView(frame: .zero)
 	private lazy var refreshBarItem = UIBarButtonItem(customView: refreshProgressView)
 	private var isToolbarProgressViewShowing = false
@@ -277,7 +277,7 @@ final class MainTimelineModernViewController: UIViewController, UndoableCommandR
 				let indexPaths = collectionView.indexPathsForSelectedItems ?? []
 				if !indexPaths.contains(indexPath) {
 					Self.logger.debug("MainTimelineModernViewController: restoreSelectionIfNecessary does not contain selected index path")
-					collectionView.selectItem(at: indexPath, animated: false, scrollPosition: .centeredVertically)
+					collectionView.selectItem(at: indexPath, animated: false, scrollPosition: [])
 				}
 			}
 		}
@@ -451,17 +451,18 @@ final class MainTimelineModernViewController: UIViewController, UndoableCommandR
 		coordinator?.toggleReadArticlesFilter()
 	}
 
-	private func markAllAsReadInTimeline() {
-		assert(coordinator != nil)
-		coordinator?.markAllAsReadInTimeline()
-	}
-
 	@IBAction func markAllAsRead(_ sender: Any?) {
+		guard let coordinator else {
+			assertionFailure("Expected coordinator")
+			return
+		}
 		let title = NSLocalizedString("Mark All as Read", comment: "Command")
+
+		let articlesToMark = coordinator.articles
 
 		if let source = sender as? UIBarButtonItem {
 			MarkAsReadAlertController.confirm(self, coordinator: coordinator, confirmTitle: title, sourceType: source) { [weak self] in
-				self?.markAllAsReadInTimeline()
+				self?.coordinator?.markAsReadAndShowSidebar(articlesToMark)
 			}
 		}
 
@@ -474,14 +475,14 @@ final class MainTimelineModernViewController: UIViewController, UndoableCommandR
 			}
 
 			MarkAsReadAlertController.confirm(self, coordinator: coordinator, confirmTitle: title, sourceType: contentView) { [weak self] in
-				self?.markAllAsReadInTimeline()
+				self?.coordinator?.markAsReadAndShowSidebar(articlesToMark)
 			}
 		}
 	}
 
-	@IBAction func firstUnread(_ sender: Any) {
+	@IBAction func nextUnread(_ sender: Any) {
 		assert(coordinator != nil)
-		coordinator?.selectFirstUnread()
+		coordinator?.selectNextUnread()
 	}
 
     /*
@@ -621,6 +622,23 @@ extension MainTimelineModernViewController {
 
 		isToolbarProgressViewShowing = isSidebarHidden(for: displayMode)
 		rebuildToolbarItems()
+	}
+}
+
+// MARK: - Split View State
+
+extension MainTimelineModernViewController {
+
+	/// The selection style — full-bleed gray when collapsed, rounded accent when
+	/// expanded — depends on the split view state, so visible cells need a refresh
+	/// when it changes.
+	func splitViewStateDidChange() {
+		guard let collectionView else {
+			return
+		}
+		for cell in collectionView.visibleCells {
+			cell.setNeedsUpdateConfiguration()
+		}
 	}
 }
 
@@ -881,7 +899,7 @@ private extension MainTimelineModernViewController {
 						.flexibleSpace(),
 						navigationItem.searchBarPlacementBarButtonItem,
 						.flexibleSpace(),
-						firstUnreadButton
+						nextUnreadButton
 					]
 				}
 			} else {
@@ -922,7 +940,7 @@ private extension MainTimelineModernViewController {
 
 	func updateToolbar() {
 		markAllAsReadButton?.isEnabled = isTimelineUnreadAvailable
-		firstUnreadButton.isEnabled = coordinator?.isAnyUnreadAvailable ?? false
+		nextUnreadButton.isEnabled = coordinator?.isNextUnreadAvailable ?? false
 		if #unavailable(iOS 26) {
 			rebuildToolbarItems()
 		}
@@ -943,7 +961,7 @@ private extension MainTimelineModernViewController {
 		}
 
 		items.append(.flexibleSpace())
-		items.append(firstUnreadButton)
+		items.append(nextUnreadButton)
 
 		setToolbarItems(items, animated: false)
 	}

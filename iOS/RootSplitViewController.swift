@@ -79,7 +79,7 @@ final class RootSplitViewController: UISplitViewController {
 	}
 
 	@objc func markAllAsReadAndGoToNextUnread(_ sender: Any?) {
-		coordinator.markAllAsReadInTimeline {
+		coordinator.markAsReadAndShowSidebar(coordinator.articles) {
 			self.coordinator.selectNextUnread()
 		}
 	}
@@ -158,6 +158,10 @@ final class RootSplitViewController: UISplitViewController {
 
 	@objc func toggleRead(_ sender: Any?) {
 		coordinator.toggleReadForCurrentArticle()
+	}
+
+	@objc func toggleReaderView(_ sender: Any?) {
+		coordinator.toggleReaderViewForCurrentArticle()
 	}
 
 	@objc func toggleStarred(_ sender: Any?) {

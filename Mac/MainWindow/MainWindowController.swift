@@ -447,6 +447,9 @@ final class MainWindowController: NSWindowController, NSUserInterfaceValidations
 			return
 		}
 
+		// Flush coalesced unread-count updates so folder counts are current.
+		CoalescingQueue.standard.performCallsImmediately()
+
 		NSCursor.setHiddenUntilMouseMoves(true)
 
 		// TODO: handle search mode
@@ -1302,6 +1305,14 @@ private extension MainWindowController {
 		guard let timelineViewController = currentTimelineViewController, let sidebarViewController = sidebarViewController else {
 			return false
 		}
+
+		// When the only unread article in the account is the one already selected, Next Unread has nowhere to go.
+		// This state persists on Mac when the selected article is marked read on selection and then manually marked unread again.
+		// <https://github.com/Ranchero-Software/NetNewsWire/issues/5008>
+		if AccountManager.shared.unreadCount == 1, timelineViewController.selectedArticles.count == 1, let article = timelineViewController.selectedArticles.first, !article.status.read {
+			return false
+		}
+
 		// TODO: handle search mode
 		return timelineViewController.canGoToNextUnread(wrappingToTop: wrapping) || sidebarViewController.canGoToNextUnread(wrappingToTop: wrapping)
 	}
@@ -1516,7 +1527,7 @@ private extension MainWindowController {
 
 		guard let selectedObjects = selectedObjectsInSidebar(), selectedObjects.count > 0 else {
 			window?.title = appName
-			setSubtitle(appDelegate.unreadCount)
+			setSubtitle(AccountManager.shared.unreadCount)
 			return
 		}
 

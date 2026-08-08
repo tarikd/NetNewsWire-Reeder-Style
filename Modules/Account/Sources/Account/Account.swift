@@ -91,7 +91,7 @@ public enum FetchType {
 
 @MainActor public final class Account: ProgressInfoReporter, DisplayNameProvider, UnreadCountProvider, Container, Hashable {
 
-	private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "Account")
+	private static let logger = Logger(subsystem: Logger.nnwSubsystem, category: "Account")
 
     public struct UserInfoKey {
 		public static let account = "account" // UserDidAddAccount, UserDidDeleteAccount
@@ -364,7 +364,7 @@ public enum FetchType {
 			try CredentialsManager.storeCredentials(credentials, server: server)
 		} catch {
 			Self.logger.error("Account: storeCredentials: failed to store credentials: \(error.localizedDescription, privacy: .public)")
-			postCredentialError(error, operation: "Storing credentials")
+			postSyncError(error, operation: "Storing credentials")
 			throw error
 		}
 		delegate.credentials = credentials
@@ -383,7 +383,7 @@ public enum FetchType {
 			return try CredentialsManager.retrieveCredentials(type: type, server: server, username: username)
 		} catch {
 			Self.logger.error("Account: retrieveCredentials: failed to retrieve \(type.rawValue, privacy: .public) credentials: \(error.localizedDescription, privacy: .public)")
-			postCredentialError(error, operation: "Retrieving credentials")
+			postSyncError(error, operation: "Retrieving credentials")
 			throw error
 		}
 	}
@@ -396,7 +396,7 @@ public enum FetchType {
 			try CredentialsManager.removeCredentials(type: type, server: server, username: username)
 		} catch {
 			Self.logger.error("Account: removeCredentials: failed to remove credentials: \(error.localizedDescription, privacy: .public)")
-			postCredentialError(error, operation: "Removing credentials")
+			postSyncError(error, operation: "Removing credentials")
 			throw error
 		}
 	}
@@ -425,7 +425,7 @@ public enum FetchType {
 		}
 	}
 
-	public static func oauthAuthorizationCodeGrantRequest(for type: AccountType) -> URLRequest {
+	public static func oauthAuthorizationCodeGrantRequest(for type: AccountType, state: String) -> URLRequest {
 		let grantingType: OAuthAuthorizationGranting.Type
 		switch type {
 		case .feedly:
@@ -434,7 +434,7 @@ public enum FetchType {
 			fatalError("\(type) does not support OAuth authorization code granting.")
 		}
 
-		return grantingType.oauthAuthorizationCodeGrantRequest()
+		return grantingType.oauthAuthorizationCodeGrantRequest(state: state)
 	}
 
 	public static func requestOAuthAccessToken(with response: OAuthAuthorizationResponse,
@@ -492,6 +492,12 @@ public enum FetchType {
 		_ work: () throws -> T
 	) rethrows -> T {
 		try ActivityLog.shared.logActivity(owner: activityOwner, kind: kind, detail: detail, successMessage: successMessage, durationIsSignificant: durationIsSignificant, work)
+	}
+
+	/// Fetches one page or chunk of a paginated refresh as its own numbered, timed
+	/// sub-activity of `kind`, reporting the page's item count.
+	func logRefreshPage<T>(kind: ActivityKind, message: @escaping (T) -> String, _ fetch: () async throws -> T) async throws -> T {
+		try await logActivity(kind: kind, detail: ActivityLog.shared.nextTaskNumberString(), successMessage: message, fetch)
 	}
 
 	// MARK: - Syncing Article Status
@@ -650,8 +656,9 @@ public enum FetchType {
 		let settings = feedSettings(feedURL: feedURL, feedID: feedURL)
 		let feed = Feed(account: self, url: opmlFeedSpecifier.feedURL, settings: settings)
 		if let feedTitle = opmlFeedSpecifier.title {
-			if feed.name == nil {
-				feed.name = feedTitle
+			// Store as editedName so the imported title survives the next refresh, which overwrites name with the feed's own title.
+			if feed.editedName == nil {
+				feed.editedName = feedTitle
 			}
 		}
 		return feed
@@ -685,6 +692,14 @@ public enum FetchType {
 
 	func createFeed(with name: String?, url: String, feedID: String, homePageURL: String?) -> Feed {
 		let settings = feedSettings(feedURL: url, feedID: feedID)
+
+		// The caller’s feedID is authoritative — repair a stored feedID that disagrees.
+		// <https://github.com/Ranchero-Software/NetNewsWire/issues/4172>
+		if settings.feedID != feedID {
+			Self.logger.info("Account: repairing feedID for \(url, privacy: .public): \(settings.feedID, privacy: .public) is now \(feedID, privacy: .public)")
+			settings.feedID = feedID
+		}
+
 		let feed = Feed(account: self, url: url, settings: settings)
 		feed.name = name
 		feed.homePageURL = homePageURL
@@ -913,16 +928,18 @@ public enum FetchType {
 		return articleChanges
 	}
 
-	func updateAsync(feedIDsAndItems: [String: Set<ParsedItem>], defaultRead: Bool) async {
+	@discardableResult
+	func updateAsync(feedIDsAndItems: [String: Set<ParsedItem>], defaultRead: Bool) async -> ArticleChanges {
 		// Used only by syncing systems.
 		precondition(Thread.isMainThread)
 		precondition(type != .onMyMac && type != .cloudKit)
 		guard !feedIDsAndItems.isEmpty else {
-			return
+			return ArticleChanges()
 		}
 
 		let newAndUpdatedArticles = await database.updateAsync(feedIDsAndItems: feedIDsAndItems, defaultRead: defaultRead)
 		sendNotificationAbout(newAndUpdatedArticles)
+		return newAndUpdatedArticles
 	}
 
 	/// Mark statuses for articleIDs. Returns the articleIDs whose status actually changed.
@@ -1165,16 +1182,20 @@ public enum FetchType {
 	}
 }
 
-// MARK: - Fetching Articles (Private)
+// MARK: - Error Log
 
-private extension Account {
+extension Account {
 
-	// MARK: - Credential Errors
-
-	func postCredentialError(_ error: Error, operation: String, fileName: String = #fileID, functionName: String = #function, lineNumber: Int = #line) {
+	/// Posts a notification that adds an entry to the Error Log.
+	func postSyncError(_ error: Error, operation: String, fileName: String = #fileID, functionName: String = #function, lineNumber: Int = #line) {
 		let errorLogUserInfo = ErrorLogUserInfoKey.userInfo(sourceName: nameForDisplay, sourceID: type.rawValue, operation: operation, errorMessage: AccountError.detailedErrorMessage(error), fileName: fileName, functionName: functionName, lineNumber: lineNumber)
 		NotificationCenter.default.post(name: .appDidEncounterError, object: self, userInfo: errorLogUserInfo)
 	}
+}
+
+// MARK: - Fetching Articles (Private)
+
+private extension Account {
 
 	// MARK: - Starred Articles
 

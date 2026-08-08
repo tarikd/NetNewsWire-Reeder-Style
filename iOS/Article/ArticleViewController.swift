@@ -55,11 +55,17 @@ final class ArticleViewController: UIViewController {
 	weak var coordinator: SceneCoordinator!
 
 	private let poppableDelegate = PoppableGestureRecognizerDelegate()
-	private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "ArticleViewController")
+	private static let logger = Logger(subsystem: Logger.nnwSubsystem, category: "ArticleViewController")
 
 	var article: Article? {
 		didSet {
 			Self.logger.debug("ArticleViewController: article didSet: \(self.article?.accountID ?? "nil") \(self.article?.articleID ?? "nil") \(self.article?.title ?? "nil")")
+
+			if oldValue != article {
+				// The launch-restoration scroll position belongs only to the restored article.
+				// <https://github.com/Ranchero-Software/NetNewsWire/issues/5243>
+				restoreScrollPosition = nil
+			}
 
 			if let controller = currentWebViewController, controller.article != article {
 				controller.setArticle(article)
@@ -78,11 +84,13 @@ final class ArticleViewController: UIViewController {
 							self.pendingSetViewController = controller
 						} else {
 							self.pageViewController.setViewControllers([controller], direction: .forward, animated: false, completion: nil)
+							self.syncArticleExtractorButtonState()
 						}
 					}
 				}
 			}
 			updateUI()
+			syncArticleExtractorButtonState()
 		}
 	}
 
@@ -216,7 +224,7 @@ final class ArticleViewController: UIViewController {
 	}
 
 	override func viewDidAppear(_ animated: Bool) {
-		super.viewDidAppear(true)
+		super.viewDidAppear(animated)
 		if #available(iOS 26, *) {
 			navigationController?.navigationBar.topItem?.subtitle = nil
 		}
@@ -476,9 +484,10 @@ extension ArticleViewController {
 extension ArticleViewController: WebViewControllerDelegate {
 
 	func webViewController(_ webViewController: WebViewController, articleExtractorButtonStateDidUpdate buttonState: ArticleExtractorButtonState) {
-		if webViewController === currentWebViewController {
-			articleExtractorButton.buttonState = buttonState
+		guard webViewController === currentWebViewController else {
+			return
 		}
+		syncArticleExtractorButtonState()
 	}
 
 }
@@ -520,14 +529,25 @@ extension ArticleViewController: UIPageViewControllerDelegate {
 
 		if let pending = pendingSetViewController {
 			pendingSetViewController = nil
-			pageViewController.setViewControllers([pending], direction: .forward, animated: false, completion: nil)
+			// Async because UIKit is still finishing the swipe — a synchronous
+			// setViewControllers here triggers an assertion in _UIQueuingScrollView.
+			DispatchQueue.main.async {
+				if self.isPageTransitionInProgress {
+					self.pendingSetViewController = pending
+				} else {
+					self.pageViewController.setViewControllers([pending], direction: .forward, animated: false, completion: nil)
+					self.syncArticleExtractorButtonState()
+				}
+			}
 		}
+
+		syncArticleExtractorButtonState()
 
 		guard finished, completed else { return }
 		guard let article = currentWebViewController?.article else { return }
 
 		coordinator.selectArticle(article, animations: [.select, .scroll, .navigation])
-		articleExtractorButton.buttonState = currentWebViewController?.articleExtractorButtonState ?? .off
+		syncArticleExtractorButtonState()
 
 		for viewController in previousViewControllers {
 			if let webViewController = viewController as? WebViewController {
@@ -565,6 +585,10 @@ private extension ArticleViewController {
 		controller.delegate = self
 		controller.setArticle(article, updateView: updateView)
 		return controller
+	}
+
+	func syncArticleExtractorButtonState() {
+		articleExtractorButton.buttonState = currentWebViewController?.articleExtractorButtonState ?? .off
 	}
 
 }

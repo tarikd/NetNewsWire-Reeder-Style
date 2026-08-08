@@ -75,6 +75,8 @@
 	<string>NetNewsWire.sdef</string>
 	<key>OrganizationIdentifier</key>
 	<string>$(ORGANIZATION_IDENTIFIER)</string>
+	<key>SUEnableInstallerLauncherService</key>
+	<true/>
 	<key>SUFeedURL</key>
 	<string>https://github.com/tarikd/NetNewsWire-Reeder-Style/releases/latest/download/appcast.xml</string>
 	<key>SUPublicEDKey</key>

@@ -41,8 +41,29 @@ public enum ArticleExtractorState: Sendable {
 		guard let url = URL(string: articleLink), url.scheme == "http" || url.scheme == "https" else {
 			return nil
 		}
-		self.url = url
+		self.url = Self.extractionURL(for: url)
 		super.init()
+	}
+
+	/// Some sites serve a JavaScript-heavy page that Readability can't parse, but
+	/// also publish a static equivalent. Rewrite to that before loading.
+	nonisolated static func extractionURL(for url: URL) -> URL {
+		guard let host = url.host?.lowercased() else {
+			return url
+		}
+
+		// Naver Blog desktop URLs render through a SPA shell with no article markup.
+		// The mobile site serves the post as static HTML.
+		if host == "blog.naver.com" {
+			var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+			components?.host = "m.blog.naver.com"
+			components?.query = nil
+			if let mobileURL = components?.url {
+				return mobileURL
+			}
+		}
+
+		return url
 	}
 
 	public func process() {
@@ -271,5 +292,29 @@ extension ArticleExtractor: WKNavigationDelegate {
 	func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
 		if (error as NSError).code == NSURLErrorCancelled { return }
 		fail(with: error)
+	}
+}
+
+private extension ArticleExtractor {
+
+	/// Returns a URL string optimized for extraction, applying site-specific transformations where needed.
+	static func specialCaseExtractionLink(for articleLink: String) -> String? {
+		guard let url = URL(string: articleLink),
+			  let host = url.host()?.lowercased() else {
+			return nil
+		}
+
+		// Naver Blog desktop URLs use a JavaScript-heavy SPA that extractors can't parse.
+		// The mobile site (m.blog.naver.com) renders as static HTML and works correctly.
+		if host == "blog.naver.com" {
+			var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+			components?.host = "m.blog.naver.com"
+			components?.query = nil
+			if let mobileURL = components?.url {
+				return mobileURL.absoluteString
+			}
+		}
+
+		return nil
 	}
 }

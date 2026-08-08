@@ -150,7 +150,7 @@ final class MainTimelineModernViewController: UIViewController, UndoableCommandR
 	// MARK: Private Constants
 	private let searchController = UISearchController(searchResultsController: nil)
 	private let keyboardManager = KeyboardManager(type: .timeline)
-	private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "MainTimelineModernViewController")
+	private static let logger = Logger(subsystem: Logger.nnwSubsystem, category: "MainTimelineModernViewController")
 
 	// MARK: Constants
 	private let scrollPositionQueue = CoalescingQueue(name: "Timeline Scroll Position", interval: 0.3, maxInterval: 1.0)
@@ -222,6 +222,10 @@ final class MainTimelineModernViewController: UIViewController, UndoableCommandR
 			navigationController?.navigationBar.alpha = 0
 		}
 
+		// Re-assert small title in case the shared iPhone nav bar was left in large mode.
+		// <https://github.com/Ranchero-Software/NetNewsWire/issues/5141>
+		navigationItem.largeTitleDisplayMode = .never
+
 		updateNavigationBarTitle(coordinator?.timelineFeed?.nameForDisplay ?? "")
 		coordinator?.updateNavigationBarSubtitles(nil)
 		updateToolbarProgressView()
@@ -230,7 +234,7 @@ final class MainTimelineModernViewController: UIViewController, UndoableCommandR
 	override func viewDidAppear(_ animated: Bool) {
 		Self.logger.debug("MainTimelineModernViewController: viewDidAppear")
 
-		super.viewDidAppear(true)
+		super.viewDidAppear(animated)
 		isTimelineViewControllerPending = false
 		if navigationController?.navigationBar.alpha == 0 {
 			UIView.animate(withDuration: 0.5) {
@@ -840,9 +844,11 @@ private extension MainTimelineModernViewController {
 
 			/// Note to future self: apply insets that affect cell width
 			/// calculations (leading swipe actions with sidebar visible)
+			let sidebarOverlapWidth = layoutEnvironment.container.contentInsets.leading
+			let remainingWidth = layoutEnvironment.container.effectiveContentSize.width - sidebarOverlapWidth
 			section.contentInsets = NSDirectionalEdgeInsets(
 				top: 0,
-				leading: layoutEnvironment.container.contentInsets.leading, // Sidebar width
+				leading: remainingWidth > 0 ? sidebarOverlapWidth : 0,
 				bottom: 0,
 				trailing: 0
 			)
@@ -916,10 +922,17 @@ private extension MainTimelineModernViewController {
 		let shouldShowFilterButton = coordinator?.shouldShowFilterButton() ?? false
 		navigationItem.rightBarButtonItem = shouldShowFilterButton ? filterButton : nil
 
+		// On iOS 26, prominent style fills the whole glass circle with the tint color.
 		if isReadArticlesFiltered {
+			if #available(iOS 26, *) {
+				filterButton.style = .prominent
+			}
 			filterButton.tintColor = Assets.Colors.primaryAccent
 			filterButton.accLabelText = NSLocalizedString("Selected - Filter Read Articles", comment: "Selected - Filter Read Articles")
 		} else {
+			if #available(iOS 26, *) {
+				filterButton.style = .plain
+			}
 			filterButton.tintColor = .label
 			filterButton.accLabelText = NSLocalizedString("Filter Read Articles", comment: "Filter Read Articles")
 		}
@@ -1096,14 +1109,14 @@ extension MainTimelineModernViewController: UISearchControllerDelegate {
 	}
 
 	func willDismissSearchController(_ searchController: UISearchController) {
-		coordinator?.endSearching()
 		searchController.searchBar.showsScopeBar = false
-		// Async to avoid an iOS 26 UINavigationBar crash during the search-bar dismissal transition.
+		// Async to avoid iOS 26 UINavigationBar crashes during the search-bar dismissal
+		// transition — endSearching() mutates the timeline and the navigation stack.
 		DispatchQueue.main.async {
+			self.coordinator?.endSearching()
 			self.updateToolbar()
 		}
 	}
-
 }
 
 extension MainTimelineModernViewController: UISearchResultsUpdating {

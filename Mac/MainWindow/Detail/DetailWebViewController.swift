@@ -210,6 +210,13 @@ extension DetailWebViewController: WKScriptMessageHandler {
 		} else if message.name == MessageName.mouseDidExit {
 			delegate?.mouseDidExit(self)
 		} else if message.name == EditableFocusTracker.messageName {
+			// A web view being swapped out (see reloadHTML) keeps its injected script
+			// alive until it's removed, so a late focus message can arrive from the old
+			// page. Applying it would latch the *new* web view into the focused state
+			// and silently disable every keyboard shortcut.
+			guard message.webView === webView else {
+				return
+			}
 			webView.isEditableElementFocused = (message.body as? Bool) ?? false
 		}
 	}

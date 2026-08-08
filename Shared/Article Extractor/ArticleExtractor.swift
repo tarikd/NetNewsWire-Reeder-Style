@@ -294,27 +294,3 @@ extension ArticleExtractor: WKNavigationDelegate {
 		fail(with: error)
 	}
 }
-
-private extension ArticleExtractor {
-
-	/// Returns a URL string optimized for extraction, applying site-specific transformations where needed.
-	static func specialCaseExtractionLink(for articleLink: String) -> String? {
-		guard let url = URL(string: articleLink),
-			  let host = url.host()?.lowercased() else {
-			return nil
-		}
-
-		// Naver Blog desktop URLs use a JavaScript-heavy SPA that extractors can't parse.
-		// The mobile site (m.blog.naver.com) renders as static HTML and works correctly.
-		if host == "blog.naver.com" {
-			var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-			components?.host = "m.blog.naver.com"
-			components?.query = nil
-			if let mobileURL = components?.url {
-				return mobileURL.absoluteString
-			}
-		}
-
-		return nil
-	}
-}

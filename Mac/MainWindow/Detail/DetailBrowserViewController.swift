@@ -66,6 +66,7 @@ final class DetailBrowserViewController: NSViewController {
 		browserWebView.keyboardDelegate = keyboardDelegate
 		webView = browserWebView
 		webView.navigationDelegate = self
+		webView.uiDelegate = self
 		webView.translatesAutoresizingMaskIntoConstraints = false
 		// Use WebKit's default Safari user agent rather than NetNewsWire's
 		// feed-reader UA so sites serve their normal browser layout.
@@ -214,6 +215,23 @@ extension DetailBrowserViewController: WKNavigationDelegate {
 			.replacingOccurrences(of: ">", with: "&gt;")
 		let html = "<body style=\"font: -apple-system; color: #888; padding: 2em;\">Could not load this page.<br><br>\(message)</body>"
 		webView.loadHTMLString(html, baseURL: nil)
+	}
+}
+
+// MARK: - WKUIDelegate
+
+extension DetailBrowserViewController: WKUIDelegate {
+
+	func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+		// WebKit routes links with target="_blank" — and window.open() calls — here
+		// instead of through decidePolicyFor. Without a UI delegate it drops them
+		// silently, which makes such links look broken. We have back/forward, so
+		// load the URL in place rather than spawning a window or leaving the app.
+		if let url = navigationAction.request.url {
+			webView.load(URLRequest(url: url))
+		}
+
+		return nil
 	}
 }
 

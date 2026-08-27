@@ -209,6 +209,7 @@ final class MainTimelineModernViewController: UIViewController, UndoableCommandR
 	override func viewDidLayoutSubviews() {
 		super.viewDidLayoutSubviews()
 		updateToolbarProgressView()
+		coordinator?.timelineDidLayout()
 	}
 
 	override func viewWillAppear(_ animated: Bool) {
@@ -350,8 +351,19 @@ final class MainTimelineModernViewController: UIViewController, UndoableCommandR
 		updateToolbar()
 	}
 
-	func hideSearch() {
-		navigationItem.searchController?.isActive = false
+	func hideSearch(completion: (() -> Void)? = nil) {
+		guard let searchController = navigationItem.searchController, searchController.isActive else {
+			completion?()
+			return
+		}
+		searchController.isActive = false
+		guard let transitionCoordinator = searchController.transitionCoordinator else {
+			completion?()
+			return
+		}
+		transitionCoordinator.animate(alongsideTransition: nil) { _ in
+			completion?()
+		}
 	}
 
 	func showSearchAll() {
@@ -845,7 +857,8 @@ private extension MainTimelineModernViewController {
 			/// Note to future self: apply insets that affect cell width
 			/// calculations (leading swipe actions with sidebar visible)
 			let sidebarOverlapWidth = layoutEnvironment.container.contentInsets.leading
-			let remainingWidth = layoutEnvironment.container.effectiveContentSize.width - sidebarOverlapWidth
+			// container.contentSize includes the width under the sidebar.
+			let remainingWidth = layoutEnvironment.container.contentSize.width - sidebarOverlapWidth
 			section.contentInsets = NSDirectionalEdgeInsets(
 				top: 0,
 				leading: remainingWidth > 0 ? sidebarOverlapWidth : 0,
@@ -922,17 +935,10 @@ private extension MainTimelineModernViewController {
 		let shouldShowFilterButton = coordinator?.shouldShowFilterButton() ?? false
 		navigationItem.rightBarButtonItem = shouldShowFilterButton ? filterButton : nil
 
-		// On iOS 26, prominent style fills the whole glass circle with the tint color.
 		if isReadArticlesFiltered {
-			if #available(iOS 26, *) {
-				filterButton.style = .prominent
-			}
 			filterButton.tintColor = Assets.Colors.primaryAccent
 			filterButton.accLabelText = NSLocalizedString("Selected - Filter Read Articles", comment: "Selected - Filter Read Articles")
 		} else {
-			if #available(iOS 26, *) {
-				filterButton.style = .plain
-			}
 			filterButton.tintColor = .label
 			filterButton.accLabelText = NSLocalizedString("Filter Read Articles", comment: "Filter Read Articles")
 		}

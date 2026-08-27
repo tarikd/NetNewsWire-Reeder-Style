@@ -31,18 +31,24 @@ enum ShowFeedName {
 struct SidebarItemNode: Hashable, Sendable {
 	let node: Node
 	let sidebarItemID: SidebarItemIdentifier
+	let folderID: Int? // Identifies this folder (nil if not a folder)
+	let parentFolderID: Int?
 
 	@MainActor init(_ node: Node) {
 		self.node = node
 		self.sidebarItemID = (node.representedObject as! SidebarItem).sidebarItemID!
+		self.folderID = (node.representedObject as? Folder)?.folderID
+		self.parentFolderID = (node.parent?.representedObject as? Folder)?.folderID
 	}
 
 	nonisolated func hash(into hasher: inout Hasher) {
-		hasher.combine(ObjectIdentifier(node))
+		hasher.combine(sidebarItemID)
+		hasher.combine(folderID)
+		hasher.combine(parentFolderID)
 	}
 
 	nonisolated static func == (lhs: SidebarItemNode, rhs: SidebarItemNode) -> Bool {
-		lhs.node === rhs.node
+		lhs.sidebarItemID == rhs.sidebarItemID && lhs.folderID == rhs.folderID && lhs.parentFolderID == rhs.parentFolderID
 	}
 }
 
@@ -64,6 +70,7 @@ struct SidebarItemNode: Hashable, Sendable {
 
 	private let fetchAndMergeArticlesQueue = CoalescingQueue(name: "Fetch and Merge Articles", interval: 0.5)
 	private let rebuildBackingStoresQueue = CoalescingQueue(name: "Rebuild The Backing Stores", interval: 0.5)
+	private let saveColumnWidthsQueue = CoalescingQueue(name: "Save Column Widths", interval: 0.5)
 	private var fetchSerialNumber = 0
 	private let fetchRequestQueue = FetchRequestQueue()
 
@@ -169,7 +176,7 @@ struct SidebarItemNode: Hashable, Sendable {
 			return nil
 		}
 
-		let snapshot = mainFeedCollectionViewController.dataSource.snapshot()
+		let snapshot = mainFeedCollectionViewController.currentSidebarSnapshot
 
 		let prevIndexPath: IndexPath? = {
 			if indexPath.row - 1 < 0 {
@@ -193,7 +200,7 @@ struct SidebarItemNode: Hashable, Sendable {
 			return nil
 		}
 
-		let snapshot = mainFeedCollectionViewController.dataSource.snapshot()
+		let snapshot = mainFeedCollectionViewController.currentSidebarSnapshot
 		let numberOfSections = snapshot.numberOfSections
 
 		let nextIndexPath: IndexPath? = {
@@ -317,10 +324,23 @@ struct SidebarItemNode: Hashable, Sendable {
 		return width
 	}
 
+	private static let minimumSidebarWidth: CGFloat = 300
+	private static let maximumSidebarWidth: CGFloat = 500
+
+	private static func clampSidebarWidth(_ width: CGFloat) -> CGFloat {
+		if width < minimumSidebarWidth {
+			return minimumSidebarWidth
+		}
+		if width > maximumSidebarWidth {
+			return maximumSidebarWidth
+		}
+		return width
+	}
+
 	init(rootSplitViewController: RootSplitViewController) {
 		self.rootSplitViewController = rootSplitViewController
-		self.rootSplitViewController.minimumPrimaryColumnWidth = 300
-		self.rootSplitViewController.maximumPrimaryColumnWidth = 500
+		self.rootSplitViewController.minimumPrimaryColumnWidth = SceneCoordinator.minimumSidebarWidth
+		self.rootSplitViewController.maximumPrimaryColumnWidth = SceneCoordinator.maximumSidebarWidth
 		self.rootSplitViewController.minimumSupplementaryColumnWidth = SceneCoordinator.minimumTimelineWidth
 		self.rootSplitViewController.maximumSupplementaryColumnWidth = SceneCoordinator.maximumTimelineWidth
 		let restoredTimelineWidth: CGFloat
@@ -330,6 +350,9 @@ struct SidebarItemNode: Hashable, Sendable {
 			restoredTimelineWidth = 320
 		}
 		self.rootSplitViewController.preferredSupplementaryColumnWidth = Self.clampTimelineWidth(restoredTimelineWidth)
+		if let savedSidebarWidth = AppDefaults.shared.sidebarWidth {
+			self.rootSplitViewController.preferredPrimaryColumnWidth = Self.clampSidebarWidth(CGFloat(savedSidebarWidth))
+		}
 		self.rootSplitViewController.preferredSplitBehavior = .tile
 
 		self.treeController = TreeController(delegate: treeControllerDelegate)
@@ -649,6 +672,7 @@ struct SidebarItemNode: Hashable, Sendable {
 		if !fetchRequestQueue.isAnyCurrentRequest {
 			queueFetchAndMergeArticles()
 		}
+		AccountManager.shared.repairStatusesIfNeeded()
 	}
 
 	@objc func importDownloadedTheme(_ note: Notification) {
@@ -784,19 +808,42 @@ struct SidebarItemNode: Hashable, Sendable {
 	func didEnterBackground() {
 		hidingReadArticlesState.save()
 		saveExpandedContainers()
-		saveTimelineWidth()
 	}
 
-	private func saveTimelineWidth() {
-		// Only meaningful when the timeline is its own column (iPad, expanded); when collapsed its view fills the screen.
-		guard !rootSplitViewController.isCollapsed else {
+	func timelineDidLayout() {
+		saveColumnWidthsQueue.add(self, #selector(saveTimelineWidth))
+	}
+
+	@objc private func saveTimelineWidth() {
+		guard !rootSplitViewController.isCollapsed, rootSplitViewController.displayMode != .secondaryOnly else {
 			return
 		}
-		let width = mainTimelineViewController?.view.bounds.width ?? 0
+		// The timeline view extends under the sidebar, so its bounds are wider than the column looks.
+		// <https://github.com/Ranchero-Software/NetNewsWire/issues/5401>
+		let width = mainTimelineViewController?.view.safeAreaLayoutGuide.layoutFrame.width ?? 0
 		guard width > 0 else {
 			return
 		}
 		AppDefaults.shared.timelineWidth = Int(SceneCoordinator.clampTimelineWidth(width))
+	}
+
+	func sidebarDidLayout() {
+		saveColumnWidthsQueue.add(self, #selector(saveSidebarWidth))
+	}
+
+	@objc private func saveSidebarWidth() {
+		// The sidebar is only on screen in the "two" display modes. In the others, a layout pass
+		// during a hide animation could measure a transient width that the clamp would floor to the minimum.
+		let displayMode = rootSplitViewController.displayMode
+		let sidebarIsVisible = displayMode == .twoBesideSecondary || displayMode == .twoOverSecondary || displayMode == .twoDisplaceSecondary
+		guard !rootSplitViewController.isCollapsed, sidebarIsVisible else {
+			return
+		}
+		let width = mainFeedCollectionViewController?.view.safeAreaLayoutGuide.layoutFrame.width ?? 0
+		guard width > 0 else {
+			return
+		}
+		AppDefaults.shared.sidebarWidth = Int(SceneCoordinator.clampSidebarWidth(width))
 	}
 
 	func suspend() {
@@ -855,7 +902,7 @@ struct SidebarItemNode: Hashable, Sendable {
 	}
 
 	func nodeFor(_ indexPath: IndexPath) -> Node? {
-		guard let sidebarItemNode = mainFeedCollectionViewController.dataSource.itemIdentifier(for: indexPath) else {
+		guard let sidebarItemNode = mainFeedCollectionViewController.sidebarItemNode(for: indexPath) else {
 			return nil
 		}
 		return sidebarItemNode.node
@@ -863,7 +910,7 @@ struct SidebarItemNode: Hashable, Sendable {
 
 	func indexPathFor(_ node: Node) -> IndexPath? {
 		let sidebarItemNode = SidebarItemNode(node)
-		return mainFeedCollectionViewController.dataSource.indexPath(for: sidebarItemNode)
+		return mainFeedCollectionViewController.indexPath(for: sidebarItemNode)
 	}
 
 	func articleFor(_ articleID: String) -> Article? {
@@ -1491,7 +1538,15 @@ struct SidebarItemNode: Hashable, Sendable {
 
 		addNavViewController.modalPresentationStyle = .formSheet
 		addNavViewController.preferredContentSize = AddFeedViewController.preferredContentSizeForFormSheetDisplay
-		rootSplitViewController.present(addNavViewController, animated: true)
+
+		// Presenting over an active nav-bar-hosted search bar crashes inside UIKit.
+		guard let mainTimelineViewController else {
+			rootSplitViewController.present(addNavViewController, animated: true)
+			return
+		}
+		mainTimelineViewController.hideSearch {
+			self.rootSplitViewController.present(addNavViewController, animated: true)
+		}
 	}
 
 	func showAddFolder() {
@@ -1856,7 +1911,7 @@ private extension SceneCoordinator {
 	}
 
 	func addVisibleSidebarItemsToFilterExceptions() {
-		let snapshot = mainFeedCollectionViewController.dataSource.snapshot()
+		let snapshot = mainFeedCollectionViewController.currentSidebarSnapshot
 		for sidebarItemNode in snapshot.itemIdentifiers {
 			if let feed = sidebarItemNode.node.representedObject as? SidebarItem, let sidebarItemID = feed.sidebarItemID {
 				treeControllerDelegate.addFilterException(sidebarItemID)
@@ -1892,15 +1947,20 @@ private extension SceneCoordinator {
 
 		updateExpandedNodes?()
 
-		// Update currentFeedIndexPath if needed
-		if currentFeedIndexPath != nil {
-			currentFeedIndexPath = indexPathFor(timelineFeed as AnyObject)
-		}
-
 		lastExpandedContainers = expandedContainers
 
 		let snapshot = createSidebarSnapshot()
-		mainFeedCollectionViewController.applySnapshot(snapshot, animatingDifferences: !initialLoad, completion: completion)
+		mainFeedCollectionViewController.applySnapshot(snapshot, animatingDifferences: !initialLoad) { [weak self] in
+			guard let self else {
+				return
+			}
+			// The data source reflects the new snapshot only after the apply
+			// completes — recomputing earlier would read the old layout.
+			if self.currentFeedIndexPath != nil {
+				self.currentFeedIndexPath = self.indexPathFor(self.timelineFeed as AnyObject)
+			}
+			completion?()
+		}
 	}
 
 	private func createSidebarSnapshot() -> NSDiffableDataSourceSnapshot<String, SidebarItemNode> {
@@ -1932,7 +1992,7 @@ private extension SceneCoordinator {
 	}
 
 	func reconfigureSidebarItem(_ sidebarItem: SidebarItem) {
-		var snapshot = mainFeedCollectionViewController.dataSource.snapshot()
+		let snapshot = mainFeedCollectionViewController.currentSidebarSnapshot
 
 		// Find all nodes that represent this sidebar item
 		var nodesToReconfigure: [SidebarItemNode] = []
@@ -1947,12 +2007,11 @@ private extension SceneCoordinator {
 			return
 		}
 
-		snapshot.reconfigureItems(nodesToReconfigure)
-		mainFeedCollectionViewController.dataSource.apply(snapshot, animatingDifferences: false)
+		mainFeedCollectionViewController.reconfigureItems(nodesToReconfigure)
 	}
 
 	func sidebarContains(_ sidebarItem: SidebarItem) -> Bool {
-		let snapshot = mainFeedCollectionViewController.dataSource.snapshot()
+		let snapshot = mainFeedCollectionViewController.currentSidebarSnapshot
 		for sidebarItemNode in snapshot.itemIdentifiers {
 			if let nodeSidebarItem = sidebarItemNode.node.representedObject as? SidebarItem, nodeSidebarItem.sidebarItemID == sidebarItem.sidebarItemID {
 				return true
@@ -2098,7 +2157,7 @@ private extension SceneCoordinator {
 		}()
 
 		// Increment or wrap around the IndexPath
-		let snapshot = mainFeedCollectionViewController.dataSource.snapshot()
+		let snapshot = mainFeedCollectionViewController.currentSidebarSnapshot
 		let numberOfSections = snapshot.numberOfSections
 		let nextIndexPath: IndexPath = {
 			if indexPath.row - 1 < 0 {
@@ -2127,7 +2186,7 @@ private extension SceneCoordinator {
 
 	@discardableResult
 	func selectPrevUnreadFeedFetcher(startingWith indexPath: IndexPath) -> Bool {
-		let snapshot = mainFeedCollectionViewController.dataSource.snapshot()
+		let snapshot = mainFeedCollectionViewController.currentSidebarSnapshot
 
 		for i in (0...indexPath.section).reversed() {
 
@@ -2214,7 +2273,7 @@ private extension SceneCoordinator {
 		}()
 
 		// Increment or wrap around the IndexPath
-		let snapshot = mainFeedCollectionViewController.dataSource.snapshot()
+		let snapshot = mainFeedCollectionViewController.currentSidebarSnapshot
 		let numberOfSections = snapshot.numberOfSections
 		let nextIndexPath: IndexPath = {
 			let count = snapshot.numberOfItems(inSection: snapshot.sectionIdentifiers[indexPath.section])
@@ -2242,7 +2301,7 @@ private extension SceneCoordinator {
 	}
 
 	func selectNextUnreadFeed(startingWith indexPath: IndexPath, completion: @escaping (Bool) -> Void) {
-		let snapshot = mainFeedCollectionViewController.dataSource.snapshot()
+		let snapshot = mainFeedCollectionViewController.currentSidebarSnapshot
 		let numberOfSections = snapshot.numberOfSections
 
 		for i in indexPath.section..<numberOfSections {

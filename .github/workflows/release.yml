@@ -314,7 +314,12 @@ jobs:
           NOTES_FILE="$RUNNER_TEMP/release-notes.html"
           # Drop generic upstream housekeeping subjects so synced releases read
           # cleanly (e.g. "Update appcasts", "Bump version", "Write release notes").
-          HOUSEKEEPING='^(update (appcasts?|status|version)|bump version|write release notes|update release notes|let xcode add)'
+          # Also drops mechanical churn that means nothing to a user: blank-line
+          # removals, test-only scaffolding, merge/revert bookkeeping, and edits to
+          # Status.md / ToDo / release instructions. Deliberately KEEPS submodule
+          # bumps ("Update to latest RSCore"), which can carry real fixes, and is
+          # anchored so it can't swallow our own feature commits.
+          HOUSEKEEPING='^((update|write|revise|edit) (the )?(release )?(appcasts?|status(\.md)?|notes?|release notes?|version|directions?|instructions?|todo)|(bump|update) (the )?(version|build)|let xcode add|remove (superfluous|extra|unneeded|unused) (blank )?lines?|add (a )?public init.*for (the sake of )?testing|merge branch|merge remote-tracking branch|revert ")'
           {
             echo "<h2>Changes in ${CURRENT#v}</h2>"
             echo "<ul>"

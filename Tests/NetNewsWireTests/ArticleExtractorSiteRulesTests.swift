@@ -17,6 +17,14 @@ final class ArticleExtractorSiteRulesTests: XCTestCase {
 		XCTAssertEqual(ArticleExtractor.siteContentSelector(forHost: "www.mediapart.fr"), ".news__body__center__article")
 	}
 
+	func testLesEchosIsolatesArticleContainerDespitePaywallJunkRule() {
+		// `.post-paywall` matches the generic [class*="paywall"] junk selector, so
+		// without a whitelist entry the article body is stripped before Readability
+		// scores the page.
+		XCTAssertEqual(ArticleExtractor.siteContentSelector(forHost: "www.lesechos.fr"), ".post-paywall")
+		XCTAssertEqual(ArticleExtractor.siteContentSelector(forHost: "lesechos.fr"), ".post-paywall")
+	}
+
 	func testArsTechnicaIsolatesPostContentAndStripsInBodyJunk() {
 		XCTAssertEqual(ArticleExtractor.siteContentSelector(forHost: "arstechnica.com"), ".post-content")
 		let junk = ArticleExtractor.siteJunkSelectors(forHost: "www.arstechnica.com")

@@ -201,6 +201,12 @@ public enum ArticleExtractorState: Sendable {
 			// generic paywall junk rule would otherwise strip. Whitelist it directly.
 			return ".news__body__center__article"
 		}
+		if host == "lesechos.fr" || host.hasSuffix(".lesechos.fr") {
+			// Les Echos names the article body `post-paywall`, which the generic
+			// paywall junk rule would strip before Readability sees it. Whitelist
+			// it directly, as with Mediapart above.
+			return ".post-paywall"
+		}
 		if host == "arstechnica.com" || host.hasSuffix(".arstechnica.com") {
 			// Ars splits a multi-page article into one .post-content block per page,
 			// all inside the main <article>. Matching every block (and concatenating

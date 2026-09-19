@@ -7,14 +7,15 @@
     <language>en</language>
 
 <item>
-	<title>NetNewsWire 7.1.4b1</title>
+	<title>NetNewsWire 7.1.4b3</title>
 	<description><![CDATA[
 <ul>
-<li>Fixed bug where article text could overlap the article’s top image in some feeds, including Gear Patrol’s
+<li>Disabled JavaScript for Slashdot, regardless of the setting, due to dickovers
+<li>Fixed crash that could happen when the app was moved after macOS had run it from a quarantined location, such as the Downloads folder
 </ul>
 	]]></description>
-	<pubDate>Wed, 26 Aug 2026 10:00:00 -0700</pubDate>
-	<enclosure url="https://github.com/Ranchero-Software/NetNewsWire/releases/download/mac-7.1.4b1/NetNewsWire7.1.4b1.zip" sparkle:version="7209" sparkle:shortVersionString="7.1.4b1" length="9761002" type="application/zip" />
+	<pubDate>Fri, 18 Sep 2026 14:20:00 -0700</pubDate>
+	<enclosure url="https://github.com/Ranchero-Software/NetNewsWire/releases/download/mac-7.1.4b3/NetNewsWire7.1.4b3.zip" sparkle:version="7212" sparkle:shortVersionString="7.1.4b3" length="9794328" type="application/zip" />
 	<sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
 </item>
 

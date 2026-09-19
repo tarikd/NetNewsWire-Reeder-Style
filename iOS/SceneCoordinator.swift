@@ -129,6 +129,11 @@ struct SidebarItemNode: Hashable, Sendable {
 		return rootSplitViewController.isCollapsed
 	}
 
+	// In collapsed mode, the article view is in the window only while it's on top of the navigation stack.
+	var isArticleViewControllerShowing: Bool {
+		articleViewController?.viewIfLoaded?.window != nil
+	}
+
 	var isReadFeedsFiltered: Bool {
 		return treeControllerDelegate.isReadFiltered
 	}
@@ -1138,10 +1143,17 @@ struct SidebarItemNode: Hashable, Sendable {
 		activityManager.reading(feed: timelineFeed, article: article)
 
 		if article == nil {
+			isArticleViewControllerPending = false
 			articleViewController?.article = nil
 			rootSplitViewController.showColumn(.supplementary)
 			mainTimelineViewController?.updateArticleSelection(animations: animations)
 			return
+		}
+
+		if !isNavigationDisabled, rootSplitViewController.isCollapsed, !isArticleViewControllerShowing {
+			// A push will follow — set to false in ArticleViewController.viewDidAppear.
+			// <https://github.com/Ranchero-Software/NetNewsWire/issues/5417>
+			isArticleViewControllerPending = true
 		}
 
 		rootSplitViewController.showColumn(.secondary)
@@ -1246,13 +1258,16 @@ struct SidebarItemNode: Hashable, Sendable {
 			return
 		}
 
+		if selectPrevUnreadArticleInTimeline() {
+			return
+		}
+
+		// Disable navigation only while hopping to another feed, so the intermediate
+		// timeline isn't pushed. Selecting within the current timeline must be able to
+		// push the article view controller.
 		isNavigationDisabled = true
 		defer {
 			isNavigationDisabled = false
-		}
-
-		if selectPrevUnreadArticleInTimeline() {
-			return
 		}
 
 		selectPrevUnreadFeedFetcher()
@@ -1270,13 +1285,16 @@ struct SidebarItemNode: Hashable, Sendable {
 			return
 		}
 
+		if selectNextUnreadArticleInTimeline() {
+			return
+		}
+
+		// Disable navigation only while hopping to another feed, so the intermediate
+		// timeline isn't pushed. Selecting within the current timeline must be able to
+		// push the article view controller.
 		isNavigationDisabled = true
 		defer {
 			isNavigationDisabled = false
-		}
-
-		if selectNextUnreadArticleInTimeline() {
-			return
 		}
 
 		if self.isSearching {
@@ -2198,6 +2216,10 @@ private extension SceneCoordinator {
 					return count - 1
 				}
 			}()
+
+			guard startingRow >= 0 else {
+				continue
+			}
 
 			for j in (0...startingRow).reversed() {
 

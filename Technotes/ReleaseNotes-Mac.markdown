@@ -1,5 +1,9 @@
 # Mac Release Notes
 
+### 1.7.0 10700 20 Sep 2026 - branch: main tag: v1.7.0
+
+Fixed bug where Reader View showed only the summary for Les Echos articles, because the site names its article body with a class the extractor treated as paywall chrome and stripped
+
 ### 7.1.4b3 7212 18 Sep 2026 - branch: main tag: mac-7.1.4b3
 
 Disabled JavaScript for Slashdot, regardless of the setting, due to dickovers

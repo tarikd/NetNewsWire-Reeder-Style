@@ -25,7 +25,6 @@ final class FolderInspectorViewController: NSViewController, Inspector {
 
 	// MARK: Inspector
 
-	let isFallbackInspector = false
 	var objects: [Any]? {
 		didSet {
 			renameFolderIfNecessary()
@@ -42,6 +41,10 @@ final class FolderInspectorViewController: NSViewController, Inspector {
 	}
 
 	// MARK: NSViewController
+
+	convenience init() {
+		self.init(nibName: "FolderInspector", bundle: nil)
+	}
 
 	override func viewDidLoad() {
 		updateUI()

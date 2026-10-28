@@ -7,6 +7,7 @@
 //
 
 import AppKit
+import RSCore
 
 final class AdvancedPreferencesViewController: NSViewController {
 
@@ -25,6 +26,15 @@ final class AdvancedPreferencesViewController: NSViewController {
 		set {
 			UserDefaults.standard.set(newValue ? testBuildsURL : releaseBuildsURL, forKey: appcastDefaultsKey)
 		}
+	}
+
+	convenience init() {
+		self.init(nibName: "AdvancedPreferencesView", bundle: nil)
+	}
+
+	override func viewDidLoad() {
+		super.viewDidLoad()
+		view.sizeToFittingSize()
 	}
 
 	override func viewWillAppear() {

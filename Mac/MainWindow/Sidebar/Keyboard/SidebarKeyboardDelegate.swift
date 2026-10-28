@@ -11,8 +11,6 @@ import RSCore
 
 @objc final class SidebarKeyboardDelegate: NSObject, KeyboardDelegate {
 
-	@IBOutlet var sidebarViewController: SidebarViewController?
-
 	func keydown(_ event: NSEvent, in view: NSView) -> Bool {
 
 		if MainWindowKeyboardHandler.shared.keydown(event, in: view) {

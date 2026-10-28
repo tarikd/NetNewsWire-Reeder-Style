@@ -13,7 +13,6 @@ final class NothingInspectorViewController: NSViewController, Inspector {
 	@IBOutlet var nothingTextField: NSTextField?
 	@IBOutlet var multipleTextField: NSTextField?
 
-	let isFallbackInspector = true
 	var objects: [Any]? {
 		didSet {
 			updateTextFields()
@@ -24,6 +23,10 @@ final class NothingInspectorViewController: NSViewController, Inspector {
 	func canInspect(_ objects: [Any]) -> Bool {
 
 		return true
+	}
+
+	convenience init() {
+		self.init(nibName: "NothingInspector", bundle: nil)
 	}
 
 	override func viewDidLoad() {

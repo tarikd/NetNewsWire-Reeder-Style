@@ -10,7 +10,6 @@ import AppKit
 
 @MainActor protocol Inspector: AnyObject {
 	var objects: [Any]? { get set }
-	var isFallbackInspector: Bool { get } // Can handle nothing-to-inspect or unexpected type of objects.
 	var windowTitle: String { get }
 
 	func canInspect(_ objects: [Any]) -> Bool
@@ -26,41 +25,27 @@ final class InspectorWindowController: NSWindowController {
 	var objects: [Any]? {
 		didSet {
 			_ = window
-			currentInspector = inspector(for: objects)
+			showInspector(for: objects)
 		}
 	}
 
-	private var inspectors: [InspectorViewController]!
-
-	private var currentInspector: InspectorViewController! {
-		didSet {
-			currentInspector.objects = objects
-			for inspector in inspectors {
-				if inspector !== currentInspector {
-					inspector.objects = nil
-				}
-			}
-			show(currentInspector)
-		}
-	}
+	/// Handles nothing to inspect, multiple objects, and objects no other inspector can inspect.
+	private let nothingInspector = NothingInspectorViewController()
+	private let specificInspectors: [InspectorViewController] = [FeedInspectorViewController(), FolderInspectorViewController(), BuiltinSmartFeedInspectorViewController()]
 
 	private struct DefaultsKey {
 		static let windowIsOpen = "FloatingInspectorIsOpen"
 		static let windowOrigin = "FloatingInspectorOrigin"
 	}
 
+	convenience init() {
+		self.init(windowNibName: "InspectorWindow")
+	}
+
 	override func windowDidLoad() {
 
-		let nothingInspector = window?.contentViewController as! InspectorViewController
-
-		let storyboard = NSStoryboard(name: NSStoryboard.Name("Inspector"), bundle: nil)
-		let feedInspector = inspector("Feed", storyboard)
-		let folderInspector = inspector("Folder", storyboard)
-		let builtinSmartFeedInspector = inspector("BuiltinSmartFeed", storyboard)
-
-		inspectors = [feedInspector, folderInspector, builtinSmartFeedInspector, nothingInspector]
-		currentInspector = nothingInspector
-		window?.title = currentInspector.windowTitle
+		showInspector(for: objects)
+		window?.title = nothingInspector.windowTitle
 
 		if let savedOrigin = originFromDefaults() {
 			window?.setFlippedOriginAdjustingForScreen(savedOrigin)
@@ -70,18 +55,10 @@ final class InspectorWindowController: NSWindowController {
 	}
 
 	func inspector(for objects: [Any]?) -> InspectorViewController {
-
-		var fallbackInspector: InspectorViewController?
-
-		for inspector in inspectors {
-			if inspector.isFallbackInspector {
-				fallbackInspector = inspector
-			} else if let objects = objects, inspector.canInspect(objects) {
-				return inspector
-			}
+		guard let objects else {
+			return nothingInspector
 		}
-
-		return fallbackInspector!
+		return specificInspectors.first { $0.canInspect(objects) } ?? nothingInspector
 	}
 
 	func saveState() {
@@ -95,9 +72,13 @@ final class InspectorWindowController: NSWindowController {
 
 private extension InspectorWindowController {
 
-	func inspector(_ identifier: String, _ storyboard: NSStoryboard) -> InspectorViewController {
-
-		return storyboard.instantiateController(withIdentifier: NSStoryboard.SceneIdentifier(identifier)) as! InspectorViewController
+	func showInspector(for objects: [Any]?) {
+		let currentInspector = inspector(for: objects)
+		currentInspector.objects = objects
+		for inspector in specificInspectors + [nothingInspector] where inspector !== currentInspector {
+			inspector.objects = nil
+		}
+		show(currentInspector)
 	}
 
 	func show(_ inspector: InspectorViewController) {

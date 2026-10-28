@@ -7,10 +7,14 @@
 //
 
 import UIKit
+import SwiftUI
 import RSCore
 import Account
 
 extension UIViewController {
+
+	/// Size of form sheets on iPad.
+	static let formSheetSize = CGSize(width: 460, height: 400)
 
 	func presentError(_ error: Error, dismiss: (() -> Void)? = nil) {
 		if let accountError = error as? AccountError, accountError.isCredentialsError {
@@ -31,23 +35,19 @@ private extension UIViewController {
 		let title = NSLocalizedString("Account Error", comment: "Account Error")
 		let alertController = UIAlertController(title: title, message: error.localizedDescription, preferredStyle: .alert)
 
-		let account = AccountError.account(from: error)
-		if account?.type == .feedbin {
-
+		if let account = AccountError.account(from: error), CredentialsAccountView.accountTypes.contains(account.type) {
 			let credentialsTitle = NSLocalizedString("Update Credentials", comment: "Update Credentials")
 			let credentialsAction = UIAlertAction(title: credentialsTitle, style: .default) { [weak self] _ in
 				dismiss?()
 
-				let navController = UIStoryboard.account.instantiateViewController(withIdentifier: "FeedbinAccountNavigationViewController") as! UINavigationController
-				navController.modalPresentationStyle = .formSheet
-				let addViewController = navController.topViewController as! FeedbinAccountViewController
-				addViewController.account = account
-				self?.present(navController, animated: true)
+				let hostingController = UIHostingController(rootView: CredentialsAccountView(accountType: account.type, account: account, didAddAccount: nil))
+				hostingController.modalPresentationStyle = .formSheet
+				hostingController.preferredContentSize = UIViewController.formSheetSize
+				self?.present(hostingController, animated: true)
 			}
 
 			alertController.addAction(credentialsAction)
 			alertController.preferredAction = credentialsAction
-
 		}
 
 		let dismissTitle = NSLocalizedString("OK", comment: "OK button")

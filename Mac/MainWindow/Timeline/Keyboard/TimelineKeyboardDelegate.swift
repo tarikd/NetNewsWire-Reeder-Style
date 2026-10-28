@@ -13,8 +13,6 @@ import RSCore
 
 @objc final class TimelineKeyboardDelegate: NSObject, KeyboardDelegate {
 
-	@IBOutlet var timelineViewController: TimelineViewController?
-
 	func keydown(_ event: NSEvent, in view: NSView) -> Bool {
 
 		if MainWindowKeyboardHandler.shared.keydown(event, in: view) {

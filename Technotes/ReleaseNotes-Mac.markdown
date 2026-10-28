@@ -4,6 +4,152 @@
 
 Fixed bug where Reader View showed only the summary for Les Echos articles, because the site names its article body with a class the extractor treated as paywall chrome and stripped
 
+### 7.3b2 7226 22 Oct 2026 - branch: main tag: mac-7.3b2
+
+Fixed a crash at midnight when the status bar is showing
+Added the last-refresh time to the status bar, and made it the default
+Changed the status bar to use a shorter date format
+Added Refresh and Show/Hide Sidebar commands to the status bar gear menu
+Made clicking the progress indicator in the status bar open the Current Activity window (as in NetNewsWire of Yore)
+Fixed bug where the status bar divider might drift from the split view divider
+Fixed inline footnotes in FreshRSS articles
+Added netnewswire, feed, feeds, and x-netnewswire-feed as allowed link schemes in the article view — so clicking a link to install a theme (for instance) works
+
+### 7.3b1 7225 20 Oct 2026 - branch: main tag: mac-7.3b1
+
+Restored the status bar from NetNewsWire of Yore (NetNewsWire 1-3). Show and hide it via the View menu
+Fixed extra vertical space in MacRumors articles
+
+### 7.2.1 7224 19 Oct 2026 - branch: main tag: mac-7.2.1
+
+Same as 7.2.1b1 — just bumped the version.
+
+Changes since 7.2:
+
+Fixed bug where navigated-to row, in column layout, might appear under column headers
+Fixed bug where scroller hiding/showing could mess up sidebar layout
+Added magnet as an allowed link scheme
+
+### 7.2.1b1 7223 18 Oct 2026 - branch: main tag: mac-7.2.1b1
+
+Fixed bug where navigated-to row, in column layout, might appear under column headers
+Fixed bug where scroller hiding/showing could mess up sidebar layout
+Added magnet as an allowed link scheme
+
+### 7.2 7222 14 Oct 2026 - branch: main tag: mac-7.2
+
+Changes since 7.2b4:
+
+Fixed column view bug where next-unread could scroll to a row that’s hidden under the column headers
+
+Changes since 7.1.5:
+
+Added unread count display setting — show the count, show a dot, or hide it — which applies to the Dock icon badge, window title, and sidebar
+Added column layout for the timeline — choose View > Use Column Layout
+Expanded View > Sort Articles By with more options (works with standard and column layouts)
+Made timeline sorting per window instead of one setting for the whole app
+Made the Add Feed sheet start with the folder or account selected in the sidebar
+Changed the message for adding a feed that’s already added to include the name of the folder (or folders)
+Fixed bug where YouTube embeds in articles showed an error instead of playing
+Fixed bug where embedded videos with no set height — such as Inoreader’s YouTube player — collapsed to a short strip
+Fixed extra whitespace at the end of Slashdot articles and paragraphs running together
+Fixed parsing of RSS feed titles when a feed contains a textinput section (Slashdot, for instance)
+Added support for the instapaper_ignore class — elements marked with it are now removed from articles
+Changed tabs in pre and code elements in articles to display as four spaces
+Improved finding feeds in a page by skipping links to PDFs, movies, and other files that can’t be feeds
+Changed finding a feed to use the redirected-to URL
+Sped up Today and unread count queries
+Added up to 500 characters of the HTTP error response body to Error Log entries
+Fixed bug where the sidebar could reopen with no width when it had been collapsed in 7.1.x
+Fixed a memory leak when closing a main window
+Fixed a possible crash when the sidebar or timeline had no visible rows
+Changed sorting by title and by feed to sort numbers by value — “Episode 2” comes before “Episode 10”
+Added support for Substack-style footnotes
+Improved CJK text rendering in the article view by adding text-autospace
+Fixed horizontal overflow of WordPress Math blocks and SVGs in the Tiqoe Dark theme
+Improved font sizing and fixed superscript orphans in table cells in the Tiqoe Dark theme
+
+### 7.2b4 7221 11 Oct 2026 - branch: main tag: mac-7.2b4
+
+Fixed bug where embedded videos with no set height — such as Inoreader’s YouTube player — collapsed to a short strip
+
+### 7.2b3 7220 10 Oct 2026 - branch: main tag: mac-7.2b3
+
+Fixed the Settings layout on macOS 15
+Added Spanish translations for Settings and the Sort Articles By menu
+Made each Settings pane size itself to fit, for languages that need more room
+Fixed bug where the sidebar could reopen with no width when it had been collapsed in 7.1.x
+Fixed a memory leak when closing a main window
+Fixed a possible crash when the sidebar or timeline had no visible rows
+Changed sorting by title and by feed to sort numbers by value — “Episode 2” comes before “Episode 10”
+Improved finding feeds in a page by skipping links to X, Twitter, Facebook, and Instagram, and links to files with uppercase extensions or URL queries (such as .PDF or .jpg?w=600)
+Fixed bug where some sites with “youtube” in their names were treated as YouTube
+Fixed Slashdot feed detection (for Slashdot special cases) when the feed comes through a proxy such as FeedBurner
+Changed VoiceOver to say “unread” for sidebar unread counts shown as dots
+
+### 7.2b2 7219 7 Oct 2026 - branch: main tag: mac-7.2b2
+
+Added support for Substack-style footnotes
+Improved CJK text rendering in the article view by adding text-autospace
+Fixed horizontal overflow of WordPress Math blocks and SVGs in the Tiqoe Dark theme
+
+### 7.2b1 7217 6 Oct 2026 - branch: main tag: mac-7.2b1
+
+Added unread count display setting — show the count, show a dot, or hide it — which applies to the Dock icon badge, window title, and sidebar
+Added column layout for the timeline — choose View > Use Column Layout
+Expanded View > Sort Articles By with more options (works with standard and column layouts)
+Made timeline sorting per window instead of one setting for the whole app
+Made the Add Feed sheet start with the folder or account selected in the sidebar
+Changed the message for adding a feed that’s already added to include the name of the folder (or folders)
+Fixed bug where YouTube embeds in articles showed an error instead of playing
+Fixed extra whitespace at the end of Slashdot articles and paragraphs running together
+Fixed parsing of RSS feed titles when a feed contains a textinput section (Slashdot, for instance)
+Added support for the instapaper_ignore class — elements marked with it are now removed from articles
+Changed tabs in pre and code elements in articles to display as four spaces
+Improved finding feeds in a page by skipping links to PDFs, movies, and other files that can’t be feeds
+Changed finding a feed to use the redirected-to URL
+Improved font sizing and fixed superscript orphans in table cells in the Tiqoe Dark theme
+Sped up Today and unread count queries
+Added up to 500 characters of the HTTP error response body to Error Log entries
+
+### 7.1.5 7216 29 Sep 2026 - branch: release/macos-7.1.5 tag: mac-7.1.5
+
+Fixed bug introduced in 7.1.4 where the app wouldn’t ask for notifications permission on launch, which meant no unread count in the Dock icon for new users
+
+### 7.1.4 7214 20 Sep 2026 - branch: main tag: mac-7.1.4
+
+Same as 7.1.4b3.
+
+Changes since 7.1.3:
+
+Fixed bug where read and starred statuses could stop syncing once more than 999 of them were queued (Feedbin, Feedly, NewsBlur, Reader API)
+Kept syncing read and starred statuses even when sending article content fails
+Kept fetching articles after an error sending statuses, and kept sending the rest of the statuses after one batch of them fails
+Stopped repeatedly reauthorizing a Feedly token the server has rejected
+Fixed bug where some FreshRSS, BazQux, Inoreader, and The Old Reader articles could never be marked read or starred on the server
+Fixed bug where a feed could disappear during syncing when its folder is missing locally (Feedbin and Reader API)
+Fixed bug where syncing could skip some folders (Feedbin and Reader API)
+Fixed bug where an interrupted sync could cause articles to be skipped (Feedbin and Reader API)
+Fixed bug where dates from servers could fail to parse under some system languages
+Fixed bug where iCloud syncing could stall on a batch the server considers too large
+Fixed potential hangs in iCloud syncing
+Made push-triggered iCloud syncing work even when notifications aren’t authorized
+Showed errors in the Error Log when the database can’t be read or written
+Fixed bug where a site asking the app to slow down (429 responses) could slow down refreshing for other sites with similar names
+Sped up openrss.org feeds — the app now fetches one feed an hour instead of one feed every 10 hours
+Fixed bug where the first refresh after launching could be skipped
+Fixed potential hangs while refreshing
+Fixed bug where a feed in On My Mac could fail to update after refreshing
+Stopped the article view from storing cookies and other website data on disk — feed content now runs in a private-browsing-like session
+Recovered from WebKit content-process termination, so articles no longer come up blank after the system reclaims the web views
+Made it so it will download article themes from http and https URLs only, with a maximum download size
+Fixed bug where exported OPML could contain characters that make the file invalid
+Fixed bug where renaming an account in Preferences lost keyboard focus after each keystroke
+Trimmed spaces from the username when adding a Feedbin or NewsBlur account
+Fixed Dinosaurs bugs where sorting lost the selection and where Delete could remove the wrong feeds
+Disabled JavaScript for Slashdot, regardless of the setting, due to dickovers
+Fixed crash that could happen when the app was moved after macOS had run it from a quarantined location, such as the Downloads folder
+
 ### 7.1.4b3 7212 18 Sep 2026 - branch: main tag: mac-7.1.4b3
 
 Disabled JavaScript for Slashdot, regardless of the setting, due to dickovers

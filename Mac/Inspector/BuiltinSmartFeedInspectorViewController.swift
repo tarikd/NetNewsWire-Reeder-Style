@@ -21,7 +21,6 @@ final class BuiltinSmartFeedInspectorViewController: NSViewController, Inspector
 
 	// MARK: Inspector
 
-	let isFallbackInspector = false
 	var objects: [Any]? {
 		didSet {
 			updateSmartFeed()
@@ -38,6 +37,10 @@ final class BuiltinSmartFeedInspectorViewController: NSViewController, Inspector
 	}
 
 	// MARK: NSViewController
+
+	convenience init() {
+		self.init(nibName: "BuiltinSmartFeedInspector", bundle: nil)
+	}
 
 	override func viewDidLoad() {
 

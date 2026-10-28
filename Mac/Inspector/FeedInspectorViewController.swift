@@ -33,7 +33,6 @@ final class FeedInspectorViewController: NSViewController, Inspector {
 
 	// MARK: Inspector
 
-	let isFallbackInspector = false
 	var objects: [Any]? {
 		didSet {
 			renameFeedIfNecessary()
@@ -47,6 +46,10 @@ final class FeedInspectorViewController: NSViewController, Inspector {
 	}
 
 	// MARK: NSViewController
+
+	convenience init() {
+		self.init(nibName: "FeedInspector", bundle: nil)
+	}
 
 	override func viewDidLoad() {
 		updateUI()

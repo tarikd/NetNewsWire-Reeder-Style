@@ -20,6 +20,8 @@ import Images
 	/// The user pressed Select Next Article while the last article was selected.
 	/// Return true if the delegate advanced to another feed/folder instead.
 	func timelineViewControllerWantsNextFeed(_: TimelineViewController) -> Bool
+
+	func timelineRequestedSortChange(_: TimelineViewController, parameters: ArticleSortParameters)
 }
 
 enum TimelineShowFeedName: Sendable {
@@ -124,12 +126,14 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner, Unr
 			return TimelineWindowState(readArticlesFilterStateKeys: readArticlesFilterStateKeys,
 									   readArticlesFilterStateValues: readArticlesFilterStateValues,
 									   selectedAccountID: path[ArticlePathKey.accountID] as? String,
-									   selectedArticleID: path[ArticlePathKey.articleID] as? String)
+									   selectedArticleID: path[ArticlePathKey.articleID] as? String,
+									   sortParameters: sortParameters)
 		} else {
 			return TimelineWindowState(readArticlesFilterStateKeys: readArticlesFilterStateKeys,
 									   readArticlesFilterStateValues: readArticlesFilterStateValues,
 									   selectedAccountID: nil,
-									   selectedArticleID: nil)
+									   selectedArticleID: nil,
+									   sortParameters: sortParameters)
 		}
 
 	}
@@ -215,21 +219,29 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner, Unr
 	private var didRegisterForNotifications = false
 	static let fetchAndMergeArticlesQueue = CoalescingQueue(name: "Fetch and Merge Articles", interval: 0.5, maxInterval: 2.0)
 
-	private var sortDirection = AppDefaults.shared.timelineSortDirection {
+	// Owned by the window’s TimelineContainerViewController.
+	// Before the view loads there is nothing to re-sort — the first fetch uses the current value.
+	var sortParameters = ArticleSortParameters.newestFirst {
 		didSet {
-			if sortDirection != oldValue {
+			if isViewLoaded && sortParameters != oldValue {
 				sortParametersDidChange()
+				applySortDescriptorsToTableView()
 			}
 		}
 	}
-	private var groupByFeed = AppDefaults.shared.timelineGroupByFeed {
+	// Also owned by the container, which pushes the current value before and after the view loads.
+	var layout = TimelineLayout.standard {
 		didSet {
-			if groupByFeed != oldValue {
-				sortParametersDidChange()
+			if isViewLoaded && layout != oldValue {
+				layoutDidChange()
 			}
 		}
 	}
-	private var fontSize: FontSize = AppDefaults.shared.timelineFontSize {
+	// The nib’s single column, kept so standard layout can put it back.
+	var standardColumn: NSTableColumn?
+	// Set while columns are added and autosaved state is restored, which fires sortDescriptorsDidChange.
+	var isConfiguringTableColumns = false
+	private var fontSize: FontSize = AppDefaults.timelineFontSize {
 		didSet {
 			if fontSize != oldValue {
 				fontSizeDidChange()
@@ -263,13 +275,15 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner, Unr
 		cellAppearanceWithIcon = TimelineCellAppearance(showIcon: true, fontSize: fontSize)
 
 		updateRowHeights()
-		tableView.rowHeight = currentRowHeight
 		tableView.target = self
 		tableView.doubleAction = #selector(openArticleInBrowser(_:))
 		tableView.setDraggingSourceOperationMask(.copy, forLocal: false)
 		tableView.keyboardDelegate = keyboardDelegate
-
 		tableView.style = .inset
+
+		standardColumn = tableView.tableColumns.first
+		configureTableView(for: layout)
+		updateShowIcons()
 
 		if !didRegisterForNotifications {
 			NotificationCenter.default.addObserver(self, selector: #selector(statusesDidChange(_:)), name: .StatusesDidChange, object: nil)
@@ -297,10 +311,16 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner, Unr
 		sharingServiceDelegate = SharingServiceDelegate(self.view.window)
 	}
 
+	override func viewDidLayout() {
+		super.viewDidLayout()
+		fitTableViewToVisibleWidthInStandardLayout()
+	}
+
 	// MARK: - API
 
 	func markAllAsRead(completion: (() -> Void)? = nil) {
 		guard let undoManager = undoManager, let markReadCommand = MarkStatusCommand(initialArticles: articles, markingRead: true, undoManager: undoManager, completion: completion) else {
+			completion?()
 			return
 		}
 		runCommand(markReadCommand)
@@ -495,13 +515,11 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner, Unr
 
 		tableView.selectRow(nextRowIndex)
 
-		let followingRowIndex = nextRowIndex - 1
-		if followingRowIndex < 0 {
+		if scrollToRowIfNotFullyVisible(nextRowIndex) {
 			return
 		}
 
-		tableView.scrollToRowIfNotVisible(followingRowIndex)
-
+		scrollToRowIfNotFullyVisible(nextRowIndex - 1)
 	}
 
 	@IBAction func selectNextDown(_ sender: Any?) {
@@ -528,13 +546,11 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner, Unr
 
 		tableView.selectRow(nextRowIndex)
 
-		let followingRowIndex = nextRowIndex + 1
-		if followingRowIndex > tableMaxIndex {
+		if scrollToRowIfNotFullyVisible(nextRowIndex) {
 			return
 		}
 
-		tableView.scrollToRowIfNotVisible(followingRowIndex)
-
+		scrollToRowIfNotFullyVisible(nextRowIndex + 1)
 	}
 
 	func toggleReadStatusForSelectedArticles() {
@@ -839,9 +855,12 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner, Unr
 	}
 
 	@MainActor func userDefaultsDidChange() {
-		fontSize = AppDefaults.shared.timelineFontSize
-		sortDirection = AppDefaults.shared.timelineSortDirection
-		groupByFeed = AppDefaults.shared.timelineGroupByFeed
+		fontSize = AppDefaults.timelineFontSize
+	}
+
+	/// The one place the row height is set — it depends on the layout and the font size.
+	func updateTableViewRowHeight() {
+		tableView.rowHeight = layout == .column ? columnRowHeight() : currentRowHeight
 	}
 
 	// MARK: - Reloading Data
@@ -889,7 +908,7 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner, Unr
 		if indexes.isEmpty {
 			return
 		}
-		tableView.reloadData(forRowIndexes: indexes, columnIndexes: NSIndexSet(index: 0) as IndexSet)
+		tableView.reloadData(forRowIndexes: indexes, columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns))
 	}
 
 	// MARK: - Cell Configuring
@@ -898,7 +917,7 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner, Unr
 		let longTitle = "But I must explain to you how all this mistaken idea of denouncing pleasure and praising pain was born and I will give you a complete account of the system, and expound the actual teachings of the great explorer of the truth, the master-builder of human happiness. No one rejects, dislikes, or avoids pleasure itself, because it is pleasure, but because those who do not know how to pursue pleasure rationally encounter consequences that are extremely painful. Nor again is there anyone who loves or pursues or desires to obtain pain of itself, because it is pain, but because occasionally circumstances occur in which toil and pain can procure him some great pleasure. To take a trivial example, which of us ever undertakes laborious physical exercise, except to obtain some advantage from it? But who has any right to find fault with a man who chooses to enjoy a pleasure that has no annoying consequences, or one who avoids a pain that produces no resultant pleasure?"
 		let prototypeID = "prototype"
 		let status = ArticleStatus(articleID: prototypeID, read: false, starred: false, dateArrived: Date())
-		let prototypeArticle = Article(accountID: prototypeID, articleID: prototypeID, feedID: prototypeID, uniqueID: prototypeID, title: longTitle, contentHTML: nil, contentText: nil, markdown: nil, url: nil, externalURL: nil, summary: nil, imageURL: nil, datePublished: nil, dateModified: nil, authors: nil, status: status)
+		let prototypeArticle = Article(accountID: prototypeID, articleID: prototypeID, feedID: prototypeID, uniqueID: prototypeID, title: longTitle, contentHTML: nil, contentText: nil, markdown: nil, url: nil, externalURL: nil, summary: nil, imageURL: nil, thumbnailURL: nil, datePublished: nil, dateModified: nil, authors: nil, attachments: nil, status: status)
 
 		let prototypeCellData = TimelineCellData(article: prototypeArticle, showFeedName: .feed, feedName: "Prototype Feed Name", byline: nil, iconImage: nil, showIcon: false)
 		let height = TimelineCellLayout.height(for: 100, cellData: prototypeCellData, appearance: cellAppearance)
@@ -1000,6 +1019,10 @@ extension TimelineViewController: NSTableViewDelegate {
 	private static let rowViewIdentifier = NSUserInterfaceItemIdentifier(rawValue: "timelineRow")
 
 	func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+		if layout == .column {
+			// The standard row view suits column layout. TimelineTableRowView only knows the standard cell.
+			return nil
+		}
 		if let rowView: TimelineTableRowView = tableView.makeView(withIdentifier: TimelineViewController.rowViewIdentifier, owner: nil) as? TimelineTableRowView {
 			return rowView
 		}
@@ -1011,6 +1034,9 @@ extension TimelineViewController: NSTableViewDelegate {
 	private static let timelineCellIdentifier = NSUserInterfaceItemIdentifier(rawValue: "timelineCell")
 
 	func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+		if layout == .column {
+			return columnCellView(for: tableColumn, row: row)
+		}
 
 		func configure(_ cell: TimelineTableCellView) {
 			cell.cellAppearance = showIcons ? cellAppearanceWithIcon : cellAppearance
@@ -1133,6 +1159,31 @@ extension TimelineViewController: NSTableViewDelegate {
 
 private extension TimelineViewController {
 
+	/// The table doesn’t shrink by itself when the pane narrows after leaving column layout.
+	func fitTableViewToVisibleWidthInStandardLayout() {
+		guard layout == .standard, let scrollView = tableView.enclosingScrollView else {
+			return
+		}
+		let contentInsets = scrollView.contentInsets
+		let visibleWidth = scrollView.contentView.bounds.width - contentInsets.left - contentInsets.right
+		guard visibleWidth > 0, tableView.frame.width != visibleWidth else {
+			return
+		}
+		tableView.setFrameSize(NSSize(width: visibleWidth, height: tableView.frame.height))
+		tableView.sizeLastColumnToFit()
+	}
+
+	/// Returns true if it scrolled. Callers should skip further scrolling then,
+	/// since the animation hasn’t updated the visible rect yet.
+	/// <https://github.com/Ranchero-Software/NetNewsWire/issues/5486>
+	@discardableResult func scrollToRowIfNotFullyVisible(_ row: Int) -> Bool {
+		guard (0..<tableView.numberOfRows).contains(row), !tableView.isRowFullyVisible(row) else {
+			return false
+		}
+		tableView.scrollRowFullyIntoView(row)
+		return true
+	}
+
 	func fetchAndReplacePreservingSelection() {
 		if let article = oneSelectedArticle, let account = article.account {
 			exceptionArticleFetcher = SingleArticleFetcher(account: account, articleID: article.articleID)
@@ -1165,11 +1216,24 @@ private extension TimelineViewController {
 		unreadCount = count
 	}
 
-	func updateTableViewRowHeight() {
-		tableView.rowHeight = currentRowHeight
+	func layoutDidChange() {
+		performBlockAndRestoreSelection {
+			configureTableView(for: layout)
+			updateShowIcons()
+			tableView.reloadData()
+		}
+		if tableView.selectedRow != -1 {
+			tableView.scrollRowToVisible(tableView.selectedRow)
+		}
 	}
 
 	func updateShowIcons() {
+		if layout == .column {
+			// The Feed column always shows the feed icon.
+			self.showIcons = true
+			return
+		}
+
 		if showFeedNames == .feed {
 			self.showIcons = true
 			return
@@ -1328,7 +1392,7 @@ private extension TimelineViewController {
 	}
 
 	func replaceArticles(with unsortedArticles: Set<Article>) {
-		articles = Array(unsortedArticles).sortedByDate(sortDirection, groupByFeed: groupByFeed)
+		articles = Array(unsortedArticles).sorted(by: sortParameters)
 	}
 
 	func fetchUnsortedArticlesSync(for representedObjects: [Any]) -> Set<Article> {

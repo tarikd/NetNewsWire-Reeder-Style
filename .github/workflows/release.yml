@@ -14,40 +14,92 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  ci-gate:
+    name: Require green CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      actions: read
+    steps:
+      - name: Wait for CI on this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # The release job runs no tests itself, so don't ship a commit unless
+          # the CI workflow passed on it. Tags usually land right after the push
+          # to main, so CI may still be running (or not created yet): wait for it.
+          RUN_ID=""
+          for _ in $(seq 1 20); do
+            RUN_ID=$(gh run list --workflow ci.yml --commit "$GITHUB_SHA" --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+            [ -n "$RUN_ID" ] && break
+            sleep 15
+          done
+          if [ -z "$RUN_ID" ]; then
+            echo "::error::No CI run found for $GITHUB_SHA. Push the commit to main so CI runs, then re-run this workflow."
+            exit 1
+          fi
+          echo "Waiting on CI: https://github.com/$GH_REPO/actions/runs/$RUN_ID"
+          gh run watch "$RUN_ID" --interval 30 > /dev/null || true
+          CONCLUSION=$(gh run view "$RUN_ID" --json conclusion --jq .conclusion)
+          if [ "$CONCLUSION" != "success" ]; then
+            echo "::error::CI run $RUN_ID concluded '$CONCLUSION'. Re-run or fix CI, then re-run this workflow."
+            exit 1
+          fi
+
   build-dmg:
     name: Build DMG
+    needs: ci-gate
     runs-on: macos-26
     env:
       # "true" when Developer ID signing secrets are configured; otherwise the
       # job falls back to an ad-hoc (unsigned, un-notarized) build.
       SIGNED: ${{ secrets.DEVELOPER_ID_CERT_P12 != '' }}
     steps:
+      - name: Require signing for tag builds
+        if: startsWith(github.ref, 'refs/tags/') && env.SIGNED != 'true'
+        run: |
+          # An unsigned tag build would become the latest release without an
+          # appcast.xml, breaking update checks for every installed copy.
+          echo "::error::Developer ID signing secrets are missing; refusing to publish an unsigned release."
+          exit 1
+
       - name: Checkout
         uses: actions/checkout@v5
         with:
           submodules: recursive
-          # Full history + tags so the appcast changelog can diff against the
-          # previous version tag.
-          fetch-depth: 0
+
+      - name: Fetch version tags
+        # The appcast changelog diffs against the previous version tag, so it
+        # needs full history and the v* tags. Fetch only those: a full fetch
+        # also pulls every upstream tag, and iOS-6.0.2 / ios-6.0.2 differ only
+        # in case, which fails on the runner's case-insensitive filesystem.
+        run: git fetch --no-tags --unshallow origin '+refs/tags/v*:refs/tags/v*'
 
       - name: Generate Secrets Sources
         run: PROJECT_DIR="$GITHUB_WORKSPACE" ./buildscripts/updateSecrets.sh
 
-      - name: Select Xcode 26.3
-        run: sudo xcode-select -s /Applications/Xcode_26.3.app/Contents/Developer
+      # Keep in step with ci.yml so we ship what CI tested.
+      - name: Select Xcode 26.6
+        run: sudo xcode-select -s /Applications/Xcode_26.6.app/Contents/Developer
 
       - name: Determine version
         id: version
         run: |
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
             # Derive the app version from the tag (vX.Y.Z). The marketing string
             # is X.Y.Z; the build number is a monotonic integer X*10000+Y*100+Z
-            # that Sparkle compares to decide whether an update is newer.
-            SEMVER="${GITHUB_REF_NAME#v}"
-            IFS=. read -r MA MI PA <<< "$SEMVER"
-            echo "APP_MARKETING_VERSION=$SEMVER" >> "$GITHUB_ENV"
-            echo "APP_BUILD_VERSION=$(( ${MA:-0} * 10000 + ${MI:-0} * 100 + ${PA:-0} ))" >> "$GITHUB_ENV"
+            # that Sparkle compares to decide whether an update is newer, so
+            # minor and patch must stay below 100.
+            if [[ ! "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)$ ]]; then
+              echo "::error::Release tags must be vX.Y.Z (no leading zeros, minor and patch below 100), got '$GITHUB_REF_NAME'"
+              exit 1
+            fi
+            MA=${BASH_REMATCH[1]} MI=${BASH_REMATCH[2]} PA=${BASH_REMATCH[3]}
+            echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "APP_MARKETING_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+            echo "APP_BUILD_VERSION=$(( MA * 10000 + MI * 100 + PA ))" >> "$GITHUB_ENV"
           else
             echo "version=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
           fi
@@ -364,7 +416,9 @@ jobs:
 
       - name: Publish release (tag builds)
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v3
+        # Pinned to a commit: this third-party action runs with a write token
+        # on the machine whose keychain holds the Developer ID key.
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: |
             ${{ steps.dmg.outputs.path }}

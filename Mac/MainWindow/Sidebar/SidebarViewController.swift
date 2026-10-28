@@ -170,17 +170,24 @@ extension Notification.Name {
 			restingConstraint
 		])
 
-		// Shrink the feed list's scroll view so it ends above the pill, following it
-		// as the status bar pushes it up.
+		// The nib already pins the scroll view on all four edges, with its bottom
+		// tied to the progress view. Re-pinning it here would conflict with that and
+		// leave the scroll view covering the pill, swallowing its clicks. Instead,
+		// retarget the existing bottom constraint so the list stops above the pill.
 		if let scrollView = outlineView.enclosingScrollView {
 			scrollView.borderType = .noBorder
-			scrollView.translatesAutoresizingMaskIntoConstraints = false
-			NSLayoutConstraint.activate([
-				scrollView.topAnchor.constraint(equalTo: view.topAnchor),
-				scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-				scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-				scrollView.bottomAnchor.constraint(equalTo: hostingView.topAnchor, constant: -Self.filterTopGap)
-			])
+			// The nib ties the scroll view's bottom to the progress view's top, with
+			// the progress view as firstItem — so match the scroll view on either
+			// side of the constraint, not just as firstItem.
+			for constraint in view.constraints {
+				let pinsScrollViewBottom =
+					(constraint.firstItem === scrollView && constraint.firstAttribute == .bottom)
+					|| (constraint.secondItem === scrollView && constraint.secondAttribute == .bottom)
+				if pinsScrollViewBottom {
+					constraint.isActive = false
+				}
+			}
+			scrollView.bottomAnchor.constraint(equalTo: hostingView.topAnchor, constant: -Self.filterTopGap).isActive = true
 		}
 	}
 

@@ -1,5 +1,12 @@
 # Mac Release Notes
 
+### 1.8.0 10800 28 Oct 2026 - branch: main tag: v1.8.0
+
+Merged NetNewsWire 7.1.5 through 7.3b2 from upstream. Highlights from upstream: a status bar at the bottom of the window (View menu to show/hide), article sorting by field and direction, column layout fixes, FreshRSS footnote fixes, and a large number of sync and crash fixes across Feedbin, Feedly, Reader API, and CloudKit
+Ported the Keyboard preferences pane to upstream's new nib-based preferences window
+Fixed the sidebar Unread/All toggle, which stopped responding to clicks after the upstream nib replaced the sidebar storyboard
+Kept Reader View available in developer builds, since this fork extracts articles on-device
+
 ### 1.7.0 10700 20 Sep 2026 - branch: main tag: v1.7.0
 
 Fixed bug where Reader View showed only the summary for Les Echos articles, because the site names its article body with a class the extractor treated as paywall chrome and stripped

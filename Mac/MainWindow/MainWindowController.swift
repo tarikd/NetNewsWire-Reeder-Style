@@ -968,6 +968,12 @@ extension MainWindowController: NSSearchFieldDelegate {
 extension MainWindowController: ArticleExtractorDelegate {
 
 	func articleExtractionDidFail(with: Error) {
+		// A feed set to always use Reader View shows "Loading…" while extracting.
+		// Show the feed's own version of the article rather than leaving it that way.
+		if let article = oneSelectedArticle {
+			detailViewController?.articleExtractionDidFail(for: article, scrollY: restoreArticleWindowScrollY, mode: timelineSourceMode)
+			restoreArticleWindowScrollY = nil
+		}
 		makeToolbarValidate()
 	}
 

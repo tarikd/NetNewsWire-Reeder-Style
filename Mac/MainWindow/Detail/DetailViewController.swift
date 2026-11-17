@@ -20,6 +20,16 @@ enum DetailState: Equatable {
 	case extracted(Article, ExtractedArticle, CGFloat?)
 }
 
+extension DetailState {
+
+	/// What to show once Reader View extraction has failed. A pane that was
+	/// waiting on the extractor falls back to the feed's own version of the
+	/// article. Anything else is left as it is.
+	func afterExtractionFailure(for article: Article, scrollY: CGFloat?) -> DetailState {
+		self == .loading ? .article(article, scrollY) : self
+	}
+}
+
 @MainActor protocol DetailViewControllerDelegate: AnyObject {
 	func detailViewController(_: DetailViewController, didRequestInAppBrowserFor url: URL)
 	func detailViewControllerDidRequestArticle(_: DetailViewController)
@@ -147,6 +157,17 @@ final class DetailViewController: NSViewController, WKUIDelegate {
 			detailStateForRegular = state
 		case .search:
 			detailStateForSearch = state
+		}
+	}
+
+	/// Reader View extraction failed for the article. If the pane is still
+	/// showing "Loading…" for it, show the feed's own version instead.
+	func articleExtractionDidFail(for article: Article, scrollY: CGFloat?, mode: TimelineSourceMode) {
+		switch mode {
+		case .regular:
+			detailStateForRegular = detailStateForRegular.afterExtractionFailure(for: article, scrollY: scrollY)
+		case .search:
+			detailStateForSearch = detailStateForSearch.afterExtractionFailure(for: article, scrollY: scrollY)
 		}
 	}
 

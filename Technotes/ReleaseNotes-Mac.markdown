@@ -1,5 +1,10 @@
 # Mac Release Notes
 
+### 1.8.1 10801 17 Nov 2026 - branch: main tag: v1.8.1
+
+Fixed bug where Reader View was slow, or never appeared, when a page's ads or trackers couldn't be reached, as on a network with no working IPv4. Reader View now reads the article once the page's HTML has arrived instead of waiting for the whole page to finish loading
+Fixed bug where a feed set to always use Reader View stayed on "Loading…" when Reader View failed. It now shows the feed's own version of the article
+
 ### 1.8.0 10800 28 Oct 2026 - branch: main tag: v1.8.0
 
 Merged NetNewsWire 7.1.5 through 7.3b2 from upstream. Highlights from upstream: a status bar at the bottom of the window (View menu to show/hide), article sorting by field and direction, column layout fixes, FreshRSS footnote fixes, and a large number of sync and crash fixes across Feedbin, Feedly, Reader API, and CloudKit

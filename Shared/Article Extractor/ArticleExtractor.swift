@@ -33,7 +33,15 @@ public enum ArticleExtractorState: Sendable {
 	private let url: URL
 	private var webView: WKWebView?
 	private var timeoutTask: Task<Void, Never>?
+	private var parsedDocumentTask: Task<Void, Never>?
 	private static let timeout: TimeInterval = 30
+
+	/// How long a page gets to finish loading once its HTML has been parsed.
+	/// The article is in the document by then. What's still loading is images,
+	/// ads, and trackers. On a network that can't reach their hosts, those can
+	/// hold up the page's load event until after `timeout` has passed.
+	private static let parsedDocumentGracePeriod: TimeInterval = 3
+	private static let documentParsedMessageName = "nnwDocumentParsed"
 
 	public init?(_ articleLink: String, delegate: ArticleExtractorDelegate) {
 		self.articleLink = articleLink
@@ -89,6 +97,14 @@ public enum ArticleExtractorState: Sendable {
 									  forMainFrameOnly: true)
 		configuration.userContentController.addUserScript(userScript)
 
+		// Tells us when the page's HTML has been parsed, which can be long
+		// before the page finishes loading. See documentDidParse().
+		let documentParsedScript = WKUserScript(source: "window.webkit.messageHandlers.\(Self.documentParsedMessageName).postMessage(true);",
+												injectionTime: .atDocumentEnd,
+												forMainFrameOnly: true)
+		configuration.userContentController.addUserScript(documentParsedScript)
+		configuration.userContentController.add(DocumentParsedMessageHandler(self), name: Self.documentParsedMessageName)
+
 		let webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 1024, height: 768), configuration: configuration)
 		webView.navigationDelegate = self
 		self.webView = webView
@@ -112,6 +128,8 @@ public enum ArticleExtractorState: Sendable {
 	private func teardown() {
 		timeoutTask?.cancel()
 		timeoutTask = nil
+		parsedDocumentTask?.cancel()
+		parsedDocumentTask = nil
 		webView?.navigationDelegate = nil
 		webView?.stopLoading()
 		webView = nil
@@ -132,7 +150,32 @@ public enum ArticleExtractorState: Sendable {
 		delegate.articleExtractionDidComplete(extractedArticle: extracted)
 	}
 
-	private func runReadability() {
+	/// The page's HTML has been parsed. Give the rest of the page a moment to
+	/// finish loading, since scripts may still be filling in the article. After
+	/// that, stop waiting for it: extract from what's there, and keep trying
+	/// until Readability finds an article, the page finishes loading, or the
+	/// extractor times out.
+	fileprivate func documentDidParse() {
+		guard state == .processing else {
+			return
+		}
+
+		parsedDocumentTask?.cancel()
+		parsedDocumentTask = Task { [weak self] in
+			while !Task.isCancelled {
+				try? await Task.sleep(nanoseconds: UInt64(Self.parsedDocumentGracePeriod * 1_000_000_000))
+				guard let self, !Task.isCancelled, self.state == .processing else {
+					return
+				}
+				self.runReadability(isFinalAttempt: false)
+			}
+		}
+	}
+
+	/// - Parameter isFinalAttempt: Whether finding no article counts as failure.
+	///   True once the page has finished loading. False while it's still loading,
+	///   when the article may simply not be there yet.
+	private func runReadability(isFinalAttempt: Bool) {
 		let host = url.host ?? ""
 		let selectors = Self.baseJunkSelectors + Self.siteJunkSelectors(forHost: host)
 		let selectorsJSON = (try? JSONSerialization.data(withJSONObject: selectors))
@@ -148,7 +191,9 @@ public enum ArticleExtractorState: Sendable {
 					  let data = jsonString.data(using: .utf8),
 					  let parsed = try? JSONDecoder().decode(ReadabilityResult.self, from: data),
 					  let content = parsed.content, !content.isEmpty else {
-					self.fail(with: URLError(.cannotDecodeContentData))
+					if isFinalAttempt {
+						self.fail(with: URLError(.cannotDecodeContentData))
+					}
 					return
 				}
 				self.complete(parsed.extractedArticle(url: self.articleLink))
@@ -287,7 +332,7 @@ public enum ArticleExtractorState: Sendable {
 extension ArticleExtractor: WKNavigationDelegate {
 
 	func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-		runReadability()
+		runReadability(isFinalAttempt: true)
 	}
 
 	func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
@@ -298,5 +343,24 @@ extension ArticleExtractor: WKNavigationDelegate {
 	func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
 		if (error as NSError).code == NSURLErrorCancelled { return }
 		fail(with: error)
+	}
+}
+
+/// WKUserContentController retains its message handlers. Forwarding through
+/// this keeps it from retaining the extractor, so an extractor that's dropped
+/// without being cancelled still goes away.
+@MainActor private final class DocumentParsedMessageHandler: NSObject, WKScriptMessageHandler {
+
+	private weak var extractor: ArticleExtractor?
+
+	init(_ extractor: ArticleExtractor) {
+		self.extractor = extractor
+	}
+
+	func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+		guard message.frameInfo.isMainFrame else {
+			return
+		}
+		extractor?.documentDidParse()
 	}
 }

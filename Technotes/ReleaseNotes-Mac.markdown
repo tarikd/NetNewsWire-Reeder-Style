@@ -1,5 +1,10 @@
 # Mac Release Notes
 
+### 1.9.0 10900 17 Nov 2026 - branch: main tag: v1.9.0
+
+Merged NetNewsWire 7.3b3 through 7.3b9 from upstream. Highlights from upstream: optional article thumbnails in the timeline (Settings > Timeline), enclosures and Media RSS shown in the article view, new Appearance and Timeline settings panes (light or dark appearance, sidebar and timeline text size, icons, which smart feeds to show), timeline rows that fit their content, the Gray and Plum themes, and many image-loading, layout, and crash fixes
+Kept the sidebar Unread/All filter in charge of which articles the timeline shows, alongside upstream's new thumbnail lookup
+
 ### 1.8.1 10801 17 Nov 2026 - branch: main tag: v1.8.1
 
 Fixed bug where Reader View was slow, or never appeared, when a page's ads or trackers couldn't be reached, as on a network with no working IPv4. Reader View now reads the article once the page's HTML has arrived instead of waiting for the whole page to finish loading

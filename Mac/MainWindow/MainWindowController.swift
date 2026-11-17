@@ -374,6 +374,10 @@ final class MainWindowController: NSWindowController, NSUserInterfaceValidations
 			return validateSortDirection(item, direction: .orderedDescending)
 		}
 
+		if let isShown = SidebarViewController.smartFeedIsShown(forGoToAction: item.action) {
+			return isShown
+		}
+
 		return true
 	}
 
@@ -1447,7 +1451,7 @@ private extension MainWindowController {
 		return (splitViewController, contentSplitViewController)
 	}
 
-	func makeEmptySplitViewController(isVertical: Bool, splitView: NSSplitView = NSSplitView()) -> NSSplitViewController {
+	func makeEmptySplitViewController(isVertical: Bool, splitView: NSSplitView = MainWindowSplitView()) -> NSSplitViewController {
 		let splitViewController = NSSplitViewController()
 		splitViewController.splitView = splitView
 		splitViewController.splitView.isVertical = isVertical

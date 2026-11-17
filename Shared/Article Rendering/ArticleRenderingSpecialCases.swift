@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import RSCore
 import RSWeb
 import Articles
 
@@ -14,7 +15,7 @@ struct ArticleRenderingSpecialCases {
 
 	// Content JavaScript is always disabled for articles from these domains,
 	// regardless of the user setting. Subdomains match too.
-	private static let domainsWithJavaScriptDisabled = ["slashdot.org"]
+	private static let domainsWithJavaScriptDisabled = ["slashdot.org", "blog.rust-lang.org"]
 
 	/// True when any of the URL strings (article link, feed URL, feed home page URL)
 	/// is on a domain whose article content must render without JavaScript.
@@ -68,6 +69,43 @@ struct ArticleRenderingSpecialCases {
 		return strayLineBreaksRegex.stringByReplacingMatches(in: html, range: range, withTemplate: "$1")
 	}
 
+	private static let feedDomainsWithSmallBodyImages = ["flickr.com"]
+
+	// A Flickr image’s `<img src="…" width="…" height="…"` — the URL up to the size suffix, then the dimensions.
+	private static let flickrImageRegex = try? NSRegularExpression(
+		pattern: "<img src=\"(https://live\\.staticflickr\\.com/[^\"]+_)[a-z]\\.jpg\" width=\"\\d+\" height=\"\\d+\"",
+		options: [.caseInsensitive]
+	)
+
+	/// Flickr feeds embed a small copy of the photo (`_m.jpg`, 240 pixels) and list a large copy
+	/// (`_b.jpg`, or `_z.jpg` for smaller photos) as the enclosure. Use the enclosure’s copy in the body,
+	/// so the enclosure is skipped as a duplicate.
+	static func enlargeFlickrImagesIfNeeded(_ html: String, feedURL: String?, attachmentURLs: [String]) -> String {
+		guard anyURLStringMatchesAnyDomain([feedURL], feedDomainsWithSmallBodyImages) else {
+			return html
+		}
+		guard !attachmentURLs.isEmpty, html.contains("staticflickr.com"), let flickrImageRegex else {
+			return html
+		}
+
+		var result = ""
+		var remainderStart = html.startIndex
+		for match in flickrImageRegex.matches(in: html, range: NSRange(html.startIndex..., in: html)) {
+			guard let tagRange = Range(match.range, in: html), let prefixRange = Range(match.range(at: 1), in: html) else {
+				continue
+			}
+			let prefix = html[prefixRange]
+			guard let largeImageURL = attachmentURLs.first(where: { $0.hasPrefix(prefix) }) else {
+				continue
+			}
+			result += html[remainderStart..<tagRange.lowerBound]
+			result += "<img src=\"\(largeImageURL.escapingSpecialXMLCharacters)\""
+			remainderStart = tagRange.upperBound
+		}
+		result += html[remainderStart...]
+		return result
+	}
+
 	static func filterHTMLIfNeeded(baseURL: String, html: String) -> String {
 		var filteredHTML = removeLocationHrefRedirectScripts(html)
 
@@ -75,7 +113,26 @@ struct ArticleRenderingSpecialCases {
 			filteredHTML = filterVergeHTML(filteredHTML)
 		}
 
+		if shouldDisableJavaScript(urlStrings: [baseURL]) {
+			filteredHTML = unwrappingNoscriptTags(filteredHTML)
+		}
+
 		return filteredHTML
+	}
+
+	// Even with content JavaScript disabled for the page, WebKit’s user agent style sheet
+	// still hides <noscript> (display: none). Remove the tags so their content shows
+	// (the Rust blog’s charts, for example).
+	// <https://github.com/Ranchero-Software/NetNewsWire/issues/5518>
+	private static let noscriptTagRegex = try? NSRegularExpression(pattern: "</?noscript\\b[^>]*>", options: [.caseInsensitive])
+
+	static func unwrappingNoscriptTags(_ html: String) -> String {
+		guard html.range(of: "<noscript", options: .caseInsensitive) != nil, let noscriptTagRegex else {
+			return html
+		}
+
+		let range = NSRange(html.startIndex..., in: html)
+		return noscriptTagRegex.stringByReplacingMatches(in: html, range: range, withTemplate: "")
 	}
 
 	// Matches a `<script>` that assigns to `location.href` — `location.href =` but not `==`
@@ -150,6 +207,73 @@ struct ArticleRenderingSpecialCases {
 			return nil
 		}
 		return youTubeEmbedURLPrefix + videoID
+	}
+
+	private static let youTubeVideoIDLength = 11
+	private static let youTubeEmbedPaths = ["youtube.com/embed/", "youtube-nocookie.com/embed/"]
+
+	/// True when `body` embeds the YouTube video that the image at `stillImageURL` is a still of.
+	/// Substack lists the still as an enclosure, as in `substackcdn.com/image/youtube/w_728,c_limit/VIDEO_ID`.
+	/// YouTube’s own stills are like `i.ytimg.com/vi/VIDEO_ID/hqdefault.jpg`.
+	static func bodyEmbedsYouTubeVideo(stillImageURL: String, body: String) -> Bool {
+		guard let url = URL(string: stillImageURL) else {
+			return false
+		}
+		let possibleVideoIDs = url.pathComponents.filter { pathComponent in
+			pathComponent.count == youTubeVideoIDLength && pathComponent.unicodeScalars.allSatisfy { youTubeVideoIDCharacters.contains($0) }
+		}
+		for videoID in possibleVideoIDs {
+			if youTubeEmbedPaths.contains(where: { body.contains($0 + videoID) }) {
+				return true
+			}
+		}
+		return false
+	}
+
+	private static let engadgetImageDomains = ["engadget.com"]
+	private static let engadgetLargeImagePrefix = "l-"
+
+	/// Engadget’s enclosure and `media:thumbnail` are the body’s image with an `l-` prefix,
+	/// as in `l-intro-1794240937.jpg` and `intro-1794240937.jpg`.
+	static func removingEngadgetImagePrefix(_ fileName: String, imageURL: String) -> String {
+		guard fileName.hasPrefix(engadgetLargeImagePrefix), SpecialCase.urlStringMatchesDomain(imageURL, engadgetImageDomains) else {
+			return fileName
+		}
+		return String(fileName.dropFirst(engadgetLargeImagePrefix.count))
+	}
+
+	private static let brettTerpstraImageDomains = ["brettterpstra.com"]
+
+	/// Brett Terpstra’s `media:content` is the body’s image with a version number, often as a square `_fb` crop,
+	/// as in `web-exc-map.7542.jpg` and `web-exc-map.jpg`, or `nvalt-extensions-rb_fb.7542.jpg` and `nvalt-extensions-rb.7542.jpg`.
+	static func removingBrettTerpstraImageSuffixes(_ fileName: String, imageURL: String) -> String {
+		guard SpecialCase.urlStringMatchesDomain(imageURL, brettTerpstraImageDomains) else {
+			return fileName
+		}
+		// The `_fb` crop marker and the version number, as in `nvalt-extensions-rb_fb.7542.jpg`.
+		let suffixRegex = #/(?:_fb)?(?:\.\d+)?(?=\.[A-Za-z0-9]+$)/#
+		return fileName.replacing(suffixRegex, with: "")
+	}
+
+	private static let bloggerImageDomains = ["blogger.googleusercontent.com", "bp.blogspot.com"]
+	private static let bloggerThumbnailSizePrefix = "s72-"
+
+	/// Blogger’s `media:thumbnail` is a 72-pixel square crop of one of the body’s images,
+	/// as in `…/s72-c/image.jpg` or `…/s72-w395-h279-c/image.png`.
+	static func isBloggerThumbnail(_ urlString: String) -> Bool {
+		guard SpecialCase.urlStringMatchesDomain(urlString, bloggerImageDomains), let url = URL(string: urlString) else {
+			return false
+		}
+		return url.pathComponents.contains { $0.hasPrefix(bloggerThumbnailSizePrefix) }
+	}
+
+	private static let substackImageDomains = ["substackcdn.com", "substack-post-media.s3.amazonaws.com"]
+	private static let substackTopImageMarker = "&quot;topImage&quot;:true"
+
+	/// Substack’s enclosure is the post’s cover image, which is sometimes a separate upload of the body’s top image,
+	/// as in `2c9ce7c8-…_2560x1440.png` and `55fb8931-…_848x444.webp`. The top image’s `data-attrs` has `"topImage":true`.
+	static func bodyHasSubstackTopImage(imageURL: String, body: String) -> Bool {
+		SpecialCase.urlStringMatchesDomain(imageURL, substackImageDomains) && body.contains(substackTopImageMarker)
 	}
 
 	private static func anyURLStringMatchesAnyDomain(_ urlStrings: [String?], _ domains: [String]) -> Bool {

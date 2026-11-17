@@ -96,6 +96,22 @@ import RSParser
 		#expect(attachment.durationInSeconds == 125)
 	}
 
+	@Test func guardianImageRenditionsMergedIntoWidest() throws {
+		// The Guardian lists each image at widths 140, 460, and 700, as sibling media:content elements.
+		let rss = """
+		<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/"><channel><title>The Guardian</title><link>https://www.theguardian.com/uk</link><item><title>‘A global political awakening’: how gen Z protests are sweeping the world</title><link>https://www.theguardian.com/world/2026/nov/06/gen-z-protests-sweeping-the-world</link><description>&lt;p&gt;From Serbia to Bangladesh and India to France, young people are pushing back against authoritarianism&lt;/p&gt;</description><guid>https://www.theguardian.com/world/2026/nov/06/gen-z-protests-sweeping-the-world</guid><media:content width="140" url="https://i.guim.co.uk/img/media/d8c802e22e952ef416894c5d0a6ecca11d13b496/459_0_4582_3666/master/4582.jpg?width=140&amp;quality=85&amp;auto=format&amp;fit=max&amp;s=92a98b53493301af4a38acb36c24d9e4"><media:credit scheme="urn:ebu">Photograph: Uros Arsic/Reuters</media:credit></media:content><media:content width="460" url="https://i.guim.co.uk/img/media/d8c802e22e952ef416894c5d0a6ecca11d13b496/459_0_4582_3666/master/4582.jpg?width=460&amp;quality=85&amp;auto=format&amp;fit=max&amp;s=696a83c3a860b507c37e09ffd47ae7c3"><media:credit scheme="urn:ebu">Photograph: Uros Arsic/Reuters</media:credit></media:content><media:content width="700" url="https://i.guim.co.uk/img/media/d8c802e22e952ef416894c5d0a6ecca11d13b496/459_0_4582_3666/master/4582.jpg?width=700&amp;quality=85&amp;auto=format&amp;fit=max&amp;s=0e6444e5dfc451bcc781cb563d8ef201"><media:credit scheme="urn:ebu">Photograph: Uros Arsic/Reuters</media:credit></media:content></item></channel></rss>
+		"""
+		let d = ParserData(url: "https://www.theguardian.com/uk/rss", data: Data(rss.utf8))
+		let parsedFeed = try #require(try FeedParser.parse(d))
+		let item = try #require(parsedFeed.items.first)
+
+		let attachments = try #require(item.attachments)
+		#expect(attachments.count == 1)
+		let attachment = try #require(attachments.first)
+		#expect(attachment.url == "https://i.guim.co.uk/img/media/d8c802e22e952ef416894c5d0a6ecca11d13b496/459_0_4582_3666/master/4582.jpg?width=700&quality=85&auto=format&fit=max&s=0e6444e5dfc451bcc781cb563d8ef201")
+		#expect(attachment.width == 700)
+	}
+
 	@Test func gravatarBecomesAuthorAvatar() throws {
 		// WordPress adds the author’s Gravatar as a media:content titled with the author’s name.
 		let d = parserData("postpunkmonk", "rss", "https://postpunkmonk.com/")
@@ -113,6 +129,36 @@ import RSParser
 			"https://postpunkmonk.com/wp-content/uploads/2026/10/automatic40eulogy9-26.jpg",
 			"https://postpunkmonk.com/wp-content/uploads/2022/10/8-ball-yes.jpg"
 		])
+	}
+
+	@Test func gravatarTitledWithUsernameBecomesAuthorAvatar() throws {
+		// Hal Mueller’s Blog: the Gravatar’s media:title is the username, which differs from dc:creator.
+		let gravatarURL = "https://2.gravatar.com/avatar/559e1cc83bb53cbd383cae605e1d28f720da7c925008e6c24eef5e0258f36878?s=96&d=https%3A%2F%2Fs0.wp.com%2Fi%2Fmu.gif&r=G"
+		let rss = """
+		<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:media="http://search.yahoo.com/mrss/"><channel><title>Hal Mueller&#039;s Blog</title><link>https://halmueller.wordpress.com</link><item><title>election</title><link>https://halmueller.wordpress.com/2024/11/06/election/</link><dc:creator><![CDATA[Hal Mueller]]></dc:creator><guid isPermaLink="false">http://halmueller.wordpress.com/?p=148</guid><description><![CDATA[Really, people? You can&#8217;t vote for a woman????]]></description><media:content url="https://2.gravatar.com/avatar/559e1cc83bb53cbd383cae605e1d28f720da7c925008e6c24eef5e0258f36878?s=96&#38;d=https%3A%2F%2Fs0.wp.com%2Fi%2Fmu.gif&#38;r=G" medium="image"><media:title type="html">halmueller</media:title></media:content></item></channel></rss>
+		"""
+		let d = ParserData(url: "https://halmueller.wordpress.com/feed/", data: Data(rss.utf8))
+		let parsedFeed = try #require(try FeedParser.parse(d))
+		let item = try #require(parsedFeed.items.first)
+
+		let author = try #require(item.authors?.first)
+		#expect(author.name == "Hal Mueller")
+		#expect(author.avatarURL == gravatarURL)
+		#expect(item.attachments == nil)
+	}
+
+	@Test func feedImageEnclosureIsSkipped() throws {
+		// Letters from an American: Substack lists the feed’s image as the enclosure of a post with no image of its own.
+		let feedImageURL = "https://substackcdn.com/image/fetch/$s_!yKDv!,w_256,c_limit,f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F4b47f775-3df7-41dd-8bc9-a64cdd72d948_600x600.png"
+		let rss = """
+		<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>Letters from an American</title><link>https://heathercoxrichardson.substack.com</link><image><url>\(feedImageURL)</url><title>Letters from an American</title><link>https://heathercoxrichardson.substack.com</link></image><item><title>November 8, 2026</title><link>https://heathercoxrichardson.substack.com/p/november-8-2026</link><guid isPermaLink="false">https://heathercoxrichardson.substack.com/p/november-8-2026</guid><enclosure url="\(feedImageURL)" length="0" type="image/jpeg"/><description>Since the dramatic victories of the Democrats on Tuesday, Trump has been posting increasingly provocative material on social media.</description></item></channel></rss>
+		"""
+		let d = ParserData(url: "https://heathercoxrichardson.substack.com/feed", data: Data(rss.utf8))
+		let parsedFeed = try #require(try FeedParser.parse(d))
+		let item = try #require(parsedFeed.items.first)
+
+		#expect(parsedFeed.iconURL == feedImageURL)
+		#expect(item.attachments == nil)
 	}
 
 	@Test func theOmniShowUniqueIDs() throws {

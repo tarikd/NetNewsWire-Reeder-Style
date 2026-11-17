@@ -19,6 +19,23 @@ class MainFeedCollectionViewFolderCell: UICollectionViewCell {
 	@IBOutlet var faviconView: IconView!
 	@IBOutlet var unreadCountLabel: UILabel!
 	@IBOutlet var disclosureButton: UIButton!
+	@IBOutlet var faviconWidthConstraint: NSLayoutConstraint?
+	@IBOutlet var folderTitleLeadingConstraint: NSLayoutConstraint?
+
+	private static let faviconWidth: CGFloat = 24
+	private static let folderTitleSpacing: CGFloat = 8
+
+	/// Without the icon, the title starts where the icon would be.
+	var showsIcon = true {
+		didSet {
+			guard showsIcon != oldValue else {
+				return
+			}
+			faviconView.isHidden = !showsIcon
+			faviconWidthConstraint?.constant = showsIcon ? Self.faviconWidth : 0
+			folderTitleLeadingConstraint?.constant = showsIcon ? Self.folderTitleSpacing : 0
+		}
+	}
 
 	var delegate: MainFeedCollectionViewFolderCellDelegate?
 
@@ -43,10 +60,15 @@ class MainFeedCollectionViewFolderCell: UICollectionViewCell {
 		AppDefaults.unreadCountDisplay.text(for: unreadCount)
 	}
 
+	/// Gray when grayscale icons are on.
+	private var iconTintColor: UIColor {
+		iconImage?.preferredColor ?? Assets.Colors.primaryAccent
+	}
+
 	var iconImage: IconImage? {
 		didSet {
 			faviconView.iconImage = iconImage
-			faviconView.tintColor = iconImage?.preferredColor ?? Assets.Colors.secondaryAccent
+			faviconView.tintColor = iconTintColor
 		}
 	}
 
@@ -164,11 +186,11 @@ class MainFeedCollectionViewFolderCell: UICollectionViewCell {
 			folderTitle.font = UIFont.systemFont(ofSize: UIFont.preferredFont(forTextStyle: .body).pointSize, weight: .semibold)
 			unreadCountLabel.textColor = Assets.Colors.primaryAccent
 			unreadCountLabel.font = UIFont.systemFont(ofSize: UIFont.preferredFont(forTextStyle: .body).pointSize, weight: .semibold)
-			faviconView.tintColor = Assets.Colors.primaryAccent
+			faviconView.tintColor = iconTintColor
 			disclosureButton.configuration?.baseForegroundColor = .label
 		default:
 			folderTitle.textColor = .label
-			faviconView.tintColor = Assets.Colors.primaryAccent
+			faviconView.tintColor = iconTintColor
 			folderTitle.font = UIFont.preferredFont(forTextStyle: .body)
 			unreadCountLabel.textColor = .secondaryLabel
 			unreadCountLabel.font = UIFont.preferredFont(forTextStyle: .body)

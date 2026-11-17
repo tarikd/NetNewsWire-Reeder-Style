@@ -48,6 +48,7 @@ struct Assets {
 		static let share = RSImage(symbol: "square.and.arrow.up")!
 		static let folder = RSImage(symbol: "folder")!
 		static let starredFeed = IconImage(starClosed, isSymbol: true, isBackgroundSuppressed: true, preferredColor: Assets.Colors.star)
+		static var preferencesToolbarAppearance: RSImage { RSImage(named: "preferencesToolbarAppearance")! }
 
 #if os(macOS)
 		static var accountLocal: RSImage { RSImage(named: "accountLocal")! }
@@ -61,6 +62,7 @@ struct Assets {
 		static let openInBrowser = RSImage(symbol: "safari")!
 		static let preferencesToolbarAccounts = RSImage(symbol: "at")!
 		static let preferencesToolbarGeneral = RSImage(symbol: "gearshape")!
+		static let preferencesToolbarTimeline = RSImage(symbol: "list.bullet.rectangle")!
 		static let preferencesToolbarAdvanced = RSImage(symbol: "gearshape.2")!
 		static let readClosed = RSImage(symbol: "largecircle.fill.circle")!
 		static let readOpen = RSImage(symbol: "circle")!
@@ -80,6 +82,7 @@ struct Assets {
 #else // iOS
 		static var accountLocalPadImage: RSImage { RSImage(named: "accountLocalPad")! }
 		static var accountLocalPhoneImage: RSImage { RSImage(named: "accountLocalPhone")! }
+		static var timelinePreviewThumbnail: RSImage { RSImage(named: "timelinePreviewThumbnail")! }
 
 		static let circleClosed = RSImage(symbol: "largecircle.fill.circle")!
 		static let markBelowAsRead = RSImage(symbol: "arrowtriangle.down.circle")!
@@ -101,8 +104,47 @@ struct Assets {
 		static let smartFeed = RSImage(symbol: "gear")!
 		static let trash = RSImage(symbol: "trash")!
 
+		static let settingsSystemSettings = RSImage(symbol: "gear")!
+		static let settingsImportSubscriptions = RSImage(symbol: "square.and.arrow.down")!
+		static let settingsExportSubscriptions = RSImage(symbol: "square.and.arrow.up")!
+		static var settingsSidebar: RSImage { RSImage(named: "settingsSidebar")! }
+		static var settingsTimeline: RSImage { RSImage(named: "settingsTimeline")! }
+		static var settingsArticles: RSImage { RSImage(named: "settingsArticles")! }
+		static let settingsErrorLog = RSImage(symbol: "exclamationmark.triangle")!
+		static let settingsActivityLog = RSImage(symbol: "clock.arrow.circlepath")!
+		static let settingsAccountStats = RSImage(symbol: "chart.bar")!
+		static let settingsDinosaurs: RSImage = {
+			let emoji = "🦖" as NSString
+			let attributes: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: settingsEmojiFontSize)]
+			let emojiSize = emoji.size(withAttributes: attributes)
+			// Template, mirrored so the dinosaur faces the row’s text.
+			let image = UIGraphicsImageRenderer(size: settingsIconSize).image { context in
+				context.cgContext.translateBy(x: settingsIconSize.width, y: 0.0)
+				context.cgContext.scaleBy(x: -1.0, y: 1.0)
+				let origin = CGPoint(x: (settingsIconSize.width - emojiSize.width) / 2.0, y: (settingsIconSize.height - emojiSize.height) / 2.0)
+				emoji.draw(at: origin, withAttributes: attributes)
+			}
+			return image.withRenderingMode(.alwaysTemplate)
+		}()
+		static let settingsCloudKitStats = RSImage(symbol: "icloud")!
+		static let settingsHelp = RSImage(symbol: "questionmark.circle")!
+		static let settingsForum = RSImage(symbol: "bubble.left.and.bubble.right")!
+		static let settingsThemesGallery = RSImage(symbol: "paintpalette")!
+		static let settingsReleaseNotes = RSImage(symbol: "doc.text")!
+		static let settingsBugTracker = RSImage(symbol: "ant")!
+		static let settingsNetNewsWireNewsFeed: RSImage = {
+			let rect = CGRect(origin: .zero, size: settingsIconSize)
+			return UIGraphicsImageRenderer(size: settingsIconSize).image { _ in
+				UIBezierPath(roundedRect: rect, cornerRadius: settingsIconCornerRadius).addClip()
+				nnwFeedIcon.draw(in: rect)
+			}
+		}()
+		static let settingsIconSize = CGSize(width: 22, height: 22)
+		private static let settingsIconCornerRadius = 5.0
+		private static let settingsEmojiFontSize = 21.0
+
 		static let searchFeed = IconImage(RSImage(symbol: "magnifyingglass")!, isSymbol: true)
-		static let mainFolder = IconImage(folder, isSymbol: true, isBackgroundSuppressed: true, preferredColor: Assets.Colors.secondaryAccent)
+		static let mainFolder = IconImage(folder, isSymbol: true, isBackgroundSuppressed: true, preferredColor: Assets.Colors.primaryAccent)
 		static let todayFeed = IconImage(RSImage(symbol: "sun.max.fill")!, isSymbol: true, isBackgroundSuppressed: true, preferredColor: UIColor.systemOrange)
 		static let unreadFeed = IconImage(RSImage(symbol: "largecircle.fill.circle")!, isSymbol: true, isBackgroundSuppressed: true, preferredColor: Assets.Colors.secondaryAccent)
 		static var timelineStar: RSImage {
@@ -147,21 +189,25 @@ struct Assets {
 	@MainActor struct Colors {
 #if os(macOS)
 		static let primaryAccent = RSColor(named: "AccentColor")!
-		static let timelineSeparator = NSColor(named: "timelineSeparatorColor")!
-		static let iconLightBackground = NSColor(named: "iconLightBackgroundColor")!
-		static let iconDarkBackground = NSColor(named: "iconDarkBackgroundColor")!
+		/// Behind icons that wouldn’t otherwise stand out from the background.
+		static let iconBackground = NSColor.tertiarySystemFill
 		static let star = RSColor(named: "StarColor")!
 		static let sidebarUnreadCountBackground = RSColor(named: "SidebarUnreadCountBackground")!
 		static let sidebarUnreadCountText = RSColor(named: "SidebarUnreadCountText")!
+		/// A faint gray, shown until a timeline thumbnail arrives.
+		static let thumbnailPlaceholder = NSColor.tertiarySystemFill
 #else // iOS
 		static let primaryAccent = RSColor(named: "primaryAccentColor")!
 		static let secondaryAccent = RSColor(named: "secondaryAccentColor")!
 		static let star = RSColor(named: "starColor")!
 		static let vibrantText = RSColor(named: "vibrantTextColor")!
 		static let controlBackground = RSColor(named: "controlBackgroundColor")!
-		static let iconBackground = RSColor(named: "iconBackgroundColor")!
+		/// Behind icons that wouldn’t otherwise stand out from the background.
+		static let iconBackground = UIColor.quaternarySystemFill
 		static let fullScreenBackground = RSColor(named: "fullScreenBackgroundColor")!
 		static let sectionHeader = RSColor(named: "sectionHeaderColor")!
+		/// A faint gray, shown until a timeline thumbnail arrives.
+		static let thumbnailPlaceholder = UIColor.quaternarySystemFill
 #endif
 	}
 }

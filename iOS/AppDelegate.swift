@@ -71,6 +71,7 @@ import Images
 		let isFirstRun = AppDefaults.isFirstRun
 		if isFirstRun {
 			Self.logger.info("Is first run.")
+			AppDefaults.articleSwipeNavigationEnabled = false
 		}
 
 		if isFirstRun && !AccountManager.shared.anyAccountHasAtLeastOneFeed() {
@@ -80,7 +81,6 @@ import Images
 
 		registerBackgroundTasks()
 		CacheCleaner.purgeIfNecessary()
-		initializeDownloaders()
 		initializeHomeScreenQuickActions()
 
 		DispatchQueue.main.async {
@@ -250,12 +250,6 @@ import Images
 // MARK: App Initialization
 
 private extension AppDelegate {
-
-	private func initializeDownloaders() {
-		let tempDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
-		let imagesFolderURL = tempDir.appendingPathComponent("Images")
-		try! FileManager.default.createDirectory(at: imagesFolderURL, withIntermediateDirectories: true, attributes: nil)
-	}
 
 	private func initializeHomeScreenQuickActions() {
 		let unreadTitle = NSLocalizedString("First Unread", comment: "First Unread")
@@ -466,6 +460,10 @@ private extension AppDelegate {
 			if AccountManager.shared.isSuspended {
 				AccountManager.shared.resumeAll()
 			}
+			// After a launch in the background nothing has asked for icons yet, so widgets and
+			// new-article notifications would get generated placeholders. Their files load during the refresh.
+			let feeds = AccountManager.shared.activeAccounts.flatMap { $0.flattenedFeeds() }
+			IconImageCache.shared.prefetchImagesForFeeds(feeds)
 			let didRefresh = await AccountManager.shared.refreshAll(errorHandler: ErrorHandler.log)
 			if !Task.isCancelled {
 				await WidgetDataEncoder.shared?.encodeAndWait()

@@ -52,7 +52,7 @@ private final class RSSDelegate: XMLSAXParserDelegate {
 	// MARK: Building output
 
 	func buildParsedFeed() -> ParsedFeed {
-		let parsedItems = Set(items.map { $0.toParsedItem(feedURL: feedURLString) })
+		let parsedItems = Set(items.map { $0.toParsedItem(feedURL: feedURLString, feedImageURL: channelImageURLString) })
 		return ParsedFeed(
 			type: .rss,
 			title: title,
@@ -101,7 +101,7 @@ private final class RSSDelegate: XMLSAXParserDelegate {
 			return
 		}
 		if parsingArticle && namespace.isITunes && localName.equals("image") {
-			if let currentItem, currentItem.itunesImageURL == nil, let href = attributes.value(forNameCaseInsensitive: "href"), !href.isEmpty {
+			if let currentItem, currentItem.itunesImageURL == nil, let href = attributes.value(forCaseInsensitiveName: "href"), !href.isEmpty {
 				currentItem.itunesImageURL = resolveURL(href)
 			}
 			namespaceElementDepth = 1

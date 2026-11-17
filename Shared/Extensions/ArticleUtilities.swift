@@ -107,6 +107,33 @@ extension Article {
 		return IconImageCache.shared.imageForArticle(self)
 	}
 
+	/// Grayscale when the current theme’s Info.plist sets `grayscaleIcon`.
+	func articleViewIconImage() -> IconImage? {
+		guard let iconImage = iconImage() else {
+			return nil
+		}
+		return ArticleThemesManager.shared.currentTheme.usesGrayscaleIcon ? iconImage.grayscaleIconImage : iconImage
+	}
+
+	/// True when an icon notification is about an icon this article might show:
+	/// its feed’s icon, or one of its authors’ avatars.
+	func mightShowIcon(in notification: Notification) -> Bool {
+		switch notification.name {
+		case .feedIconImageDidChange:
+			guard let feed, let notificationFeed = notification.userInfo?[UserInfoKey.feed] as? Feed else {
+				return false
+			}
+			return notificationFeed == feed
+		case .authorAvatarImageDidChange:
+			guard let avatarURL = notification.userInfo?[UserInfoKey.url] as? String else {
+				return false
+			}
+			return authors?.contains { $0.avatarURL == avatarURL } ?? false
+		default:
+			return false
+		}
+	}
+
 	func iconImageUrl(feed: Feed) -> URL? {
 		if let image = iconImage() {
 			guard let imageData = image.image.dataRepresentation() else {

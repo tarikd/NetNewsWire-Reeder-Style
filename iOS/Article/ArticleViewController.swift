@@ -52,11 +52,14 @@ final class ArticleViewController: UIViewController {
 		return button
 	}()
 
+	private let fullScreenTapZone = UIView()
+
 	weak var coordinator: SceneCoordinator!
 
 	private let poppableDelegate = PoppableGestureRecognizerDelegate()
 	private weak var originalPopGestureRecognizerDelegate: UIGestureRecognizerDelegate?
 	private static let logger = Logger(subsystem: Logger.nnwSubsystem, category: "ArticleViewController")
+	private static let searchBarSpacing: CGFloat = 8
 
 	var article: Article? {
 		didSet {
@@ -117,6 +120,9 @@ final class ArticleViewController: UIViewController {
 	override var keyCommands: [UIKeyCommand]? {
 		return keyboardManager.keyCommands
 	}
+	override var canBecomeFirstResponder: Bool {
+		true
+	}
 
 	override func viewDidLoad() {
 		super.viewDidLoad()
@@ -124,6 +130,7 @@ final class ArticleViewController: UIViewController {
 		NotificationCenter.default.addObserver(self, selector: #selector(unreadCountDidChange(_:)), name: .UnreadCountDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(statusesDidChange(_:)), name: .StatusesDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(contentSizeCategoryDidChange(_:)), name: UIContentSizeCategory.didChangeNotification, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(handleArticleSwipeNavigationEnabledDidChange(_:)), name: .articleSwipeNavigationEnabledDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(willEnterForeground(_:)), name: UIApplication.willEnterForegroundNotification, object: nil)
 
 		let appearance = UINavigationBarAppearance()
@@ -132,18 +139,35 @@ final class ArticleViewController: UIViewController {
 		navigationItem.scrollEdgeAppearance = appearance
 		navigationItem.compactAppearance = appearance
 
-		let fullScreenTapZone = UIView()
 		NSLayoutConstraint.activate([
 			fullScreenTapZone.widthAnchor.constraint(equalToConstant: 150),
 			fullScreenTapZone.heightAnchor.constraint(equalToConstant: 44)
 		])
 		fullScreenTapZone.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(didTapNavigationBar)))
-		navigationItem.titleView = fullScreenTapZone
+		updateFullScreenTapZone()
+		#if compiler(>=6.4.2)
+		if #available(iOS 27.1, *) {
+			registerForTraitChanges(UITraitCollection.systemTraitsAffectingVerticalBarEdge) { (self: Self, _) in
+				self.updateFullScreenTapZone()
+			}
+		}
+		#endif
 
 		articleExtractorButton.addTarget(self, action: #selector(toggleArticleExtractor(_:)), for: .touchUpInside)
 		let articleExtractorBarButtonItem = UIBarButtonItem(customView: articleExtractorButton)
+		articleExtractorBarButtonItem.title = NSLocalizedString("Reader View", comment: "Reader View")
 
 		if #available(iOS 26, *) {
+			#if compiler(>=6.4)
+			// visibilityPriority is new in iOS 27.
+			if #available(iOS 27, *) {
+				readBarButtonItem.visibilityPriority = .standard
+				starBarButtonItem.visibilityPriority = .standard
+				nextUnreadBarButtonItem.visibilityPriority = .high
+				articleExtractorBarButtonItem.visibilityPriority = .low
+				actionBarButtonItem.visibilityPriority = .high
+			}
+			#endif
 			toolbarItems?.insert(articleExtractorBarButtonItem, at: 5)
 		} else {
 			let flex = { UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil) }
@@ -162,7 +186,7 @@ final class ArticleViewController: UIViewController {
 
 		pageViewController = UIPageViewController(transitionStyle: .scroll, navigationOrientation: .horizontal, options: [:])
 		pageViewController.delegate = self
-		pageViewController.dataSource = self
+		updatePageViewControllerDataSource()
 
 		// This code is to disallow paging if we scroll from the left edge.  If this code is removed
 		// PoppableGestureRecognizerDelegate will allow us to both navigate back and page back at the
@@ -250,7 +274,7 @@ final class ArticleViewController: UIViewController {
 		}
 		// Pass animated: false — animating the nav bar / toolbar visibility change during the
 		// disappear transition triggers an Auto Layout assertion (NSISEngine) and crashes.
-		currentWebViewController?.showBars(animated: false)
+		currentWebViewController?.restoreBars(animated: false)
 	}
 
 	override func viewDidDisappear(_ animated: Bool) {
@@ -328,6 +352,15 @@ final class ArticleViewController: UIViewController {
 		currentWebViewController?.fullReload()
 	}
 
+	@objc func handleArticleSwipeNavigationEnabledDidChange(_ notification: Notification) {
+		updatePageViewControllerDataSource()
+	}
+
+	/// A nil data source turns off swipe paging. `setViewControllers` still works.
+	func updatePageViewControllerDataSource() {
+		pageViewController.dataSource = AppDefaults.articleSwipeNavigationEnabled ? self : nil
+	}
+
 	@objc func willEnterForeground(_ note: Notification) {
 		// The toolbar will come back on you if you don't hide it again
 		if AppDefaults.logicalArticleFullscreenEnabled {
@@ -383,10 +416,19 @@ final class ArticleViewController: UIViewController {
 		coordinator.navigateToTimeline()
 	}
 
+	@objc func scrollLineDown(_ sender: Any?) {
+		currentWebViewController?.scrollLineDown()
+	}
+
+	@objc func scrollLineUp(_ sender: Any?) {
+		currentWebViewController?.scrollLineUp()
+	}
+
 	// MARK: API
 
+	// Focus this view controller rather than the web view, since the web view is replaced on each article change.
 	func focus() {
-		currentWebViewController?.focus()
+		becomeFirstResponder()
 	}
 
 	func canScrollDown() -> Bool {
@@ -460,13 +502,14 @@ extension ArticleViewController {
 	@objc func beginFind(_ _: Any? = nil) {
 		searchBar.isHidden = false
 		navigationController?.setToolbarHidden(true, animated: true)
-		currentWebViewController?.additionalSafeAreaInsets.bottom = searchBar.frame.height
+		updateSearchBarPosition(keyboardHeight: 0)
 		searchBar.becomeFirstResponder()
 	}
 
 	@objc func endFind(_ _: Any? = nil) {
 		searchBar.resignFirstResponder()
 		searchBar.isHidden = true
+		searchBarBottomConstraint.constant = 0
 		navigationController?.setToolbarHidden(false, animated: true)
 		currentWebViewController?.additionalSafeAreaInsets.bottom = 0
 		currentWebViewController?.endSearch()
@@ -474,18 +517,28 @@ extension ArticleViewController {
 
 	@objc func keyboardWillChangeFrame(_ notification: Notification) {
 		if !searchBar.isHidden,
+			let window = view.window,
 			let duration = notification.userInfo?[UIWindow.keyboardAnimationDurationUserInfoKey] as? Double,
 			let curveRaw = notification.userInfo?[UIWindow.keyboardAnimationCurveUserInfoKey] as? UInt,
 			let frame = notification.userInfo?[UIWindow.keyboardFrameEndUserInfoKey] as? CGRect {
 
 			let curve = UIView.AnimationOptions(rawValue: curveRaw)
-			let newHeight = view.safeAreaLayoutGuide.layoutFrame.maxY - frame.minY
-			currentWebViewController?.additionalSafeAreaInsets.bottom = newHeight + searchBar.frame.height + 10
-			self.searchBarBottomConstraint.constant = newHeight
+			let keyboardFrame = view.convert(frame, from: window.screen.coordinateSpace)
+			let coversBottomEdge = keyboardFrame.maxY >= view.bounds.maxY
+			let newHeight = coversBottomEdge ? max(0, view.safeAreaLayoutGuide.layoutFrame.maxY - keyboardFrame.minY) : 0
+			updateSearchBarPosition(keyboardHeight: newHeight)
 			UIView.animate(withDuration: duration, delay: 0, options: curve, animations: {
 				self.view.layoutIfNeeded()
 			})
 		}
+	}
+
+	/// Puts the search bar above the keyboard and insets the web view to the search bar’s top.
+	private func updateSearchBarPosition(keyboardHeight: CGFloat) {
+		let searchBarBottom = keyboardHeight + Self.searchBarSpacing
+		searchBarBottomConstraint.constant = searchBarBottom
+		// The intrinsic height is correct before layout, unlike the frame right after un-hiding.
+		currentWebViewController?.additionalSafeAreaInsets.bottom = searchBarBottom + searchBar.intrinsicContentSize.height
 	}
 
 }
@@ -577,11 +630,13 @@ extension ArticleViewController: UIGestureRecognizerDelegate {
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-		let point = gestureRecognizer.location(in: nil)
-		if point.x > 40 {
+		// Paging is the only thing to hold back near the left edge. Refusing every other
+		// recognizer there also blocked the split view's reveal gesture, so an edge swipe
+		// did nothing over the article while it still worked alongside the toolbars.
+		guard otherGestureRecognizer === pageViewController.scrollViewInsidePageControl?.panGestureRecognizer else {
 			return true
 		}
-		return false
+		return gestureRecognizer.location(in: nil).x > 40
     }
 
 }
@@ -596,6 +651,17 @@ private extension ArticleViewController {
 		controller.delegate = self
 		controller.setArticle(article, updateView: updateView)
 		return controller
+	}
+
+	/// No tap zone with a vertical bar (Duo) — it would be the only thing in the top bar.
+	func updateFullScreenTapZone() {
+		#if compiler(>=6.4.2)
+		if #available(iOS 27.1, *), traitCollection.verticalBarEdge != .unspecified {
+			navigationItem.titleView = nil
+			return
+		}
+		#endif
+		navigationItem.titleView = fullScreenTapZone
 	}
 
 	func syncArticleExtractorButtonState() {

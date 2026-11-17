@@ -121,6 +121,7 @@ let appName = "NetNewsWire"
 
 		NotificationCenter.default.addObserver(self, selector: #selector(unreadCountDidChange(_:)), name: .UnreadCountDidChange, object: AccountManager.shared)
 		NotificationCenter.default.addObserver(self, selector: #selector(handleUnreadCountDisplaySettingDidChange(_:)), name: .unreadCountDisplaySettingDidChange, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(handleUserInterfaceColorPaletteDidUpdate(_:)), name: .userInterfaceColorPaletteDidUpdate, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(inspectableObjectsDidChange(_:)), name: .InspectableObjectsDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(importDownloadedTheme(_:)), name: .didEndDownloadingTheme, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(themeImportError(_:)), name: .didFailToImportThemeWithError, object: nil)
@@ -144,23 +145,11 @@ let appName = "NetNewsWire"
 
 	func applicationWillFinishLaunching(_ notification: Notification) {
 		FaviconGenerator.templateImage = Assets.Images.faviconTemplate
+		applyUserInterfaceColorPalette()
 
 		installAppleEventHandlers()
 
 		CacheCleaner.purgeIfNecessary()
-
-		// Try to establish a cache in the Caches folder, but if it fails for some reason fall back to a temporary dir
-		let cacheFolder: String
-		if let userCacheFolder = try? FileManager.default.url(for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: false).path {
-			cacheFolder = userCacheFolder
-		} else {
-			let bundleIdentifier = (Bundle.main.infoDictionary!["CFBundleIdentifier"]! as! String)
-			cacheFolder = (NSTemporaryDirectory() as NSString).appendingPathComponent(bundleIdentifier)
-		}
-
-		let imagesFolder = (cacheFolder as NSString).appendingPathComponent("Images")
-		let imagesFolderURL = URL(fileURLWithPath: imagesFolder)
-		try! FileManager.default.createDirectory(at: imagesFolderURL, withIntermediateDirectories: true, attributes: nil)
 	}
 
 	func applicationDidFinishLaunching(_ note: Notification) {
@@ -217,7 +206,6 @@ let appName = "NetNewsWire"
 			mainWindowController?.window?.center()
 		}
 
-		NotificationCenter.default.addObserver(self, selector: #selector(feedSettingDidChange(_:)), name: .feedSettingDidChange, object: nil)
 		NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { _ in
 			MainActor.assumeIsolated {
 				self.userDefaultsDidChange()
@@ -251,7 +239,6 @@ let appName = "NetNewsWire"
 
 		ArticleThemesManager.shared.start()
 		NetworkMonitor.shared.start()
-		MemoryPressureMonitor.shared.start()
 
 #if !SKIP_APP_GROUP_ACCESS
 		ExtensionContainersFile.shared.start()
@@ -380,15 +367,8 @@ let appName = "NetNewsWire"
 		updateDockBadge()
 	}
 
-	@objc func feedSettingDidChange(_ note: Notification) {
-		MainActor.assumeIsolated {
-			guard let feed = note.object as? Feed, let key = note.userInfo?[Feed.SettingUserInfoKey] as? Feed.SettingKey else {
-				return
-			}
-			if key == .homePageURL || key == .faviconURL {
-				_ = FaviconDownloader.shared.favicon(for: feed)
-			}
-		}
+	@objc func handleUserInterfaceColorPaletteDidUpdate(_ notification: Notification) {
+		applyUserInterfaceColorPalette()
 	}
 
 	@objc func inspectableObjectsDidChange(_ note: Notification) {
@@ -511,6 +491,10 @@ let appName = "NetNewsWire"
 
 		if item.action == #selector(toggleWebInspectorEnabled(_:)) {
 			(item as! NSMenuItem).state = AppDefaults.webInspectorEnabled ? .on : .off
+		}
+
+		if let isShown = SidebarViewController.smartFeedIsShown(forGoToAction: item.action) {
+			return isShown
 		}
 
 		return true
@@ -735,6 +719,10 @@ let appName = "NetNewsWire"
 
 	@IBAction func openDiscourse(_ sender: Any?) {
 		HelpURL.discourse.open()
+	}
+
+	@IBAction func openThemesGallery(_ sender: Any?) {
+		HelpURL.themesGallery.open()
 	}
 
 	@IBAction func showHelp(_ sender: Any?) {
@@ -1082,6 +1070,17 @@ extension AppDelegate: NSWindowRestoration {
 // Handle Notification Actions
 
 private extension AppDelegate {
+
+	func applyUserInterfaceColorPalette() {
+		switch AppDefaults.userInterfaceColorPalette {
+		case .automatic:
+			NSApp.appearance = nil
+		case .light:
+			NSApp.appearance = NSAppearance(named: .aqua)
+		case .dark:
+			NSApp.appearance = NSAppearance(named: .darkAqua)
+		}
+	}
 
 	func handleMarkAsRead(userInfo: [AnyHashable: Any]) {
 		handleStatusNotification(userInfo: userInfo, statusKey: .read)

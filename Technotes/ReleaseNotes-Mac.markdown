@@ -16,6 +16,78 @@ Kept Reader View available in developer builds, since this fork extracts article
 
 Fixed bug where Reader View showed only the summary for Les Echos articles, because the site names its article body with a class the extractor treated as paywall chrome and stripped
 
+### 7.3b9 7237 16 Nov 2026 - branch: main tag: mac-7.3b9
+
+Added Open Themes Folder and Open Themes Gallery commands to the bottom of the themes menu in the status bar
+Added a Themes Gallery command to the Help menu, and renamed Discourse Forum to NetNewsWire Forum
+Made the filename of an audio enclosure a link — it’s underlined in the Default, Gray, Plum, and Verdana Revival themes
+Fixed duplicate images in brettterpstra.com articles
+Skipped Blogger’s tiny thumbnail as an article’s primary image
+Allowed thumbnail downloading in Low Data Mode
+Made the activity log show every thumbnail download (not just failures), with the feed name and article title
+Fixed bug where double-clicking an article in an inactive window could open the wrong article
+Made double-clicking an article in an inactive window mark it as read
+
+### 7.3b8 7235 11 Nov 2026 - branch: main tag: mac-7.3b8
+
+Added Gray theme — inspired by newsprint design but not meant to be a literal copy
+Added Plum theme — uses the same layout as the Gray theme but with color
+Added an optional grayscaleIcon key to theme Info.plist files — when true, the feed icon or author avatar in the article view is grayscale. The Gray theme uses this new feature
+Fixed a crash in the timeline (too many layout passes) caused by row-height measurement mixing up same articles from different accounts
+Fixed bug where deleting a feed could remove the wrong row (usually the next row) from the sidebar
+Fixed bug where restoring with no article selected, then clicking an article, would auto-scroll the article view
+
+### 7.3b7 7234 9 Nov 2026 - branch: main tag: mac-7.3b7
+
+Make image cache eviction less aggressive, which should fix a loop where images get evicted, re-cached, evicted, re-cached, etc. (See this Discourse forum post <https://discourse.netnewswire.com/t/favicons-disappear-in-7-3b3/481>.)
+
+### 7.3b6 7233 9 Nov 2026 - branch: main tag: mac-7.3b6
+
+Added a Grayscale icons setting to Settings > Appearance — for feed icons and author avatars (article thumbnails stay in color)
+Made Feed Name and Date Above Title the default in the timeline
+Put the date above the thumbnail when small thumbnails and Feed Name and Date Above Title are both on
+Made timeline rows always show the author or feed name, instead of leaving that spot empty
+Limited articles with no title to four lines when rows show the full title with no preview
+Added [[primary_media]] and [[enclosures]] tags for themes — primary_media is the article’s main image, video, or audio from the feed, when the article’s HTML doesn’t already include it
+Allowed themes to include a template7.3.html file, which is used in 7.3 and later instead of template.html
+Updated the built-in themes to use [[primary_media]] and [[enclosures]]
+Skipped enclosure images that are the same as the feed image (as with Letters from an American), so they don’t become redundant thumbnails or primary images
+Skipped primary images for microblog-style (Mastodon, etc.) posts — their images appear with the enclosures at the bottom
+Used media:thumbnail as a fallback when an article has no other images (as with Wired)
+Picked the widest image when Guardian image enclosures differ only by width
+Fixed duplicate images in Engadget articles
+Fixed embedded YouTube videos (and other iframes) not loading on sites that use Optimole lazy loading
+Fixed blog.rust-lang.org articles — JavaScript is turned off for them, and their noscript content is shown
+Used an item’s only Gravatar as its author’s avatar, even when the author name is a username
+
+### 7.3b5 7232 7 Nov 2026 - branch: main tag: mac-7.3b5
+
+Added an Appearance settings pane — appearance (system, light, or dark), sidebar text size, sidebar icons, which smart feeds to show (Today, All Unread, Starred), and the article theme and text size (moved from General)
+Added a Timeline settings pane — text size, feed icons (automatic, always, or never), feed icon size, thumbnails, rows (full title with no preview, or title and preview in 1 to 6 lines), separators, fading read articles, and showing the feed name and date above the title
+Moved the Thumbnails setting from the View menu to Settings > Timeline
+Made rows fit their content (variable row heights) in timeline
+Made separators a regular setting (it was a hidden preference) — your existing choice carries over
+Gave the status bar a crisper top edge, a deeper gradient, and an etched, higher-contrast divider grip
+Made the main window’s split view dividers a little darker in light mode
+
+### 7.3b4 7229 6 Nov 2026 - branch: main tag: mac-7.3b4
+
+Made small thumbnails fill the space (aspect fill) — images are cropped from the sides and bottom, never the top, so faces and other important parts are more likely to stay in view
+Gave large thumbnails rounded corners, to match small thumbnails and feed icons
+Removed the background color behind thumbnails, and added a faint placeholder color that shows until a thumbnail loads
+Fixed footnote popover positioning near the edge of the article view and after resizing the window on Duo
+Fixed bug where the last article in the timeline had a separator below it (when separators are turned on via the hidden preference)
+
+### 7.3b3 7227 3 Nov 2026 - branch: main tag: mac-7.3b3
+
+Added support for enclosures and Media RSS
+Added enclosures to the article view (at the bottom) — you can see images from Mastodon feeds, play an MP3, etc.
+Made YouTube enclosures play in the privacy-enhanced YouTube player (youtube-nocookie.com)
+Made the article view show plain text or media:description when an article has no HTML content
+Made image downloading kinder to servers — honors Retry-After, waits after errors, and limits downloads to two at a time per host
+Reorganized the View menu into sections — sidebar, timeline, status bar, and toolbar
+Added article thumbnails to the timeline — choose View > Thumbnails to pick large or small. Default is none. (Works in standard layout but not column layout)
+
 ### 7.3b2 7226 22 Oct 2026 - branch: main tag: mac-7.3b2
 
 Fixed a crash at midnight when the status bar is showing

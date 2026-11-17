@@ -22,6 +22,8 @@ import Images
 
 final class WebViewController: UIViewController {
 
+	private static let arrowKeyScrollDistance: CGFloat = 60
+
 	private struct MessageName {
 		static let imageWasClicked = "imageWasClicked"
 		static let imageWasShown = "imageWasShown"
@@ -84,14 +86,15 @@ final class WebViewController: UIViewController {
 		}
 	}
 	private var restoreWindowScrollY: Int?
+	private var isChangingSize = false
 	private var isArticleContentJavascriptEnabled = AppDefaults.isArticleContentJavascriptEnabled
 
 	override func viewDidLoad() {
 		super.viewDidLoad()
 
-		NotificationCenter.default.addObserver(self, selector: #selector(feedIconDidBecomeAvailable(_:)), name: .feedIconDidBecomeAvailable, object: nil)
-		NotificationCenter.default.addObserver(self, selector: #selector(avatarDidBecomeAvailable(_:)), name: .AvatarDidBecomeAvailable, object: nil)
-		NotificationCenter.default.addObserver(self, selector: #selector(faviconDidBecomeAvailable(_:)), name: .FaviconDidBecomeAvailable, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(handleFeedIconImageDidChange(_:)), name: .feedIconImageDidChange, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(handleGrayscaleIconsDidChange(_:)), name: .grayscaleIconsDidChange, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(handleAuthorAvatarImageDidChange(_:)), name: .authorAvatarImageDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(currentArticleThemeDidChangeNotification(_:)), name: .CurrentArticleThemeDidChangeNotification, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(handleSceneDidEnterBackground(_:)), name: UIScene.didEnterBackgroundNotification, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(handleUserDefaultsDidChange(_:)), name: UserDefaults.didChangeNotification, object: nil)
@@ -107,6 +110,21 @@ final class WebViewController: UIViewController {
 		super.viewSafeAreaInsetsDidChange()
 		if isFullScreenAvailable && AppDefaults.logicalArticleFullscreenEnabled {
 			updateBottomSafeAreaForFullScreen()
+		}
+	}
+
+	override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+		super.viewWillTransition(to: size, with: coordinator)
+
+		// Ignore mid-transition offsets, then scroll back to the reader’s place.
+		isChangingSize = true
+		coordinator.animate(alongsideTransition: nil) { [weak self] _ in
+			guard let self else {
+				return
+			}
+			restoreScrollAnchor()
+			scrollPositionDidChange()
+			isChangingSize = false
 		}
 	}
 
@@ -129,15 +147,15 @@ final class WebViewController: UIViewController {
 		}
 	}
 
-	@objc func feedIconDidBecomeAvailable(_ note: Notification) {
-		reloadArticleImage()
+	@objc func handleFeedIconImageDidChange(_ notification: Notification) {
+		reloadArticleImageIfNeeded(notification)
 	}
 
-	@objc func avatarDidBecomeAvailable(_ note: Notification) {
-		reloadArticleImage()
+	@objc func handleAuthorAvatarImageDidChange(_ notification: Notification) {
+		reloadArticleImageIfNeeded(notification)
 	}
 
-	@objc func faviconDidBecomeAvailable(_ note: Notification) {
+	@objc func handleGrayscaleIconsDidChange(_ notification: Notification) {
 		reloadArticleImage()
 	}
 
@@ -206,10 +224,6 @@ final class WebViewController: UIViewController {
 		}
 	}
 
-	func focus() {
-		webView?.becomeFirstResponder()
-	}
-
 	func canScrollDown() -> Bool {
 		guard let webView = webView else { return false }
 		return webView.scrollView.contentOffset.y < finalScrollPosition(scrollingUp: false)
@@ -226,8 +240,16 @@ final class WebViewController: UIViewController {
 		}
 
 		let overlap = 2 * UIFont.systemFont(ofSize: UIFont.systemFontSize).lineHeight * windowScene.screen.scale
+		let scrollDistance = webView.scrollView.layoutMarginsGuide.layoutFrame.height - overlap
+		scroll(up: scrollingUp, distance: scrollDistance)
+	}
+
+	private func scroll(up scrollingUp: Bool, distance scrollDistance: CGFloat) {
+		guard let webView else {
+			return
+		}
+
 		let scrollToY: CGFloat = {
-			let scrollDistance = webView.scrollView.layoutMarginsGuide.layoutFrame.height - overlap
 			let fullScroll = webView.scrollView.contentOffset.y + (scrollingUp ? -scrollDistance : scrollDistance)
 			let final = finalScrollPosition(scrollingUp: scrollingUp)
 			return (scrollingUp ? fullScroll > final : fullScroll < final) ? fullScroll : final
@@ -246,6 +268,14 @@ final class WebViewController: UIViewController {
 		scrollPage(up: true)
 	}
 
+	func scrollLineDown() {
+		scroll(up: false, distance: Self.arrowKeyScrollDistance)
+	}
+
+	func scrollLineUp() {
+		scroll(up: true, distance: Self.arrowKeyScrollDistance)
+	}
+
 	func hideClickedImage() {
 		webView?.evaluateJavaScript("hideClickedImage();")
 	}
@@ -261,6 +291,11 @@ final class WebViewController: UIViewController {
 
 	func showBars(animated: Bool = true) {
 		AppDefaults.articleFullscreenEnabled = false
+		restoreBars(animated: animated)
+	}
+
+	/// Shows the bars without leaving full screen mode, so the next article still opens full screen.
+	func restoreBars(animated: Bool) {
 		coordinator.showStatusBar()
 		topShowBarsViewConstraint?.constant = 0
 		bottomShowBarsViewConstraint?.constant = 0
@@ -565,13 +600,18 @@ extension WebViewController: WKScriptMessageHandler {
 extension WebViewController: UIScrollViewDelegate {
 
 	func scrollViewDidScroll(_ scrollView: UIScrollView) {
+		guard !isChangingSize else {
+			return
+		}
 		scrollPositionQueue.add(self, #selector(scrollPositionDidChange))
 	}
 
 	@objc func scrollPositionDidChange() {
 		let articleIDWhenAsked = article?.articleID
-		webView?.evaluateJavaScript("window.scrollY") { (scrollY, error) in
-			guard error == nil else { return }
+		webView?.evaluateJavaScript("recordScrollAnchor(); window.scrollY") { (scrollY, error) in
+			guard error == nil else {
+				return
+			}
 			// A late callback must not record the previous article’s offset.
 			// <https://github.com/Ranchero-Software/NetNewsWire/issues/5243>
 			guard articleIDWhenAsked == self.article?.articleID else {
@@ -579,7 +619,9 @@ extension WebViewController: UIScrollViewDelegate {
 			}
 			let javascriptScrollY = scrollY as? Int ?? 0
 			// I don't know why this value gets returned sometimes, but it is in error
-			guard javascriptScrollY != 33554432 else { return }
+			guard javascriptScrollY != 33554432 else {
+				return
+			}
 			self.windowScrollY = javascriptScrollY
 		}
 	}
@@ -593,7 +635,7 @@ private struct ImageClickMessage: Codable {
 	let width: Float
 	let height: Float
 	let imageTitle: String?
-	let imageURL: String
+	let imageURL: String // The <img>’s src, which may be a routed timeline image
 }
 
 // MARK: Private
@@ -679,15 +721,15 @@ private extension WebViewController {
 		if let articleExtractor = articleExtractor, articleExtractor.state == .processing {
 			rendering = ArticleRenderer.loadingHTML(theme: theme)
 		} else if let articleExtractor = articleExtractor, articleExtractor.state == .failedToParse, let article = article {
-			rendering = ArticleRenderer.articleHTML(article: article, theme: theme)
+			rendering = ArticleRenderer.articleHTML(article: article, theme: theme, routesThumbnailImages: true)
 		} else if let article = article, let extractedArticle = extractedArticle {
 			if isShowingExtractedArticle {
-				rendering = ArticleRenderer.articleHTML(article: article, extractedArticle: extractedArticle, theme: theme)
+				rendering = ArticleRenderer.articleHTML(article: article, extractedArticle: extractedArticle, theme: theme, routesThumbnailImages: true)
 			} else {
-				rendering = ArticleRenderer.articleHTML(article: article, theme: theme)
+				rendering = ArticleRenderer.articleHTML(article: article, theme: theme, routesThumbnailImages: true)
 			}
 		} else if let article = article {
-			rendering = ArticleRenderer.articleHTML(article: article, theme: theme)
+			rendering = ArticleRenderer.articleHTML(article: article, theme: theme, routesThumbnailImages: true)
 		} else {
 			rendering = ArticleRenderer.noSelectionHTML(theme: theme)
 		}
@@ -703,6 +745,12 @@ private extension WebViewController {
 
 		WebViewConfiguration.addContentBlockingRules(to: webView)
 		webView.loadHTMLString(html, baseURL: URL(string: rendering.baseURL))
+	}
+
+	/// Scrolls back to the element that was at the top of the viewport before the article
+	/// reflowed, so rotating doesn't lose the reader's place.
+	func restoreScrollAnchor() {
+		webView?.evaluateJavaScript("restoreScrollAnchor();")
 	}
 
 	func finalScrollPosition(scrollingUp: Bool) -> CGFloat {
@@ -731,8 +779,18 @@ private extension WebViewController {
 		articleExtractorButtonState = .off
 	}
 
+	/// Each reload draws and encodes the icon again, so icons for other feeds and authors are skipped.
+	func reloadArticleImageIfNeeded(_ notification: Notification) {
+		guard let article, article.mightShowIcon(in: notification) else {
+			return
+		}
+		reloadArticleImage()
+	}
+
 	func reloadArticleImage() {
-		guard let article = article else { return }
+		guard let article else {
+			return
+		}
 
 		var components = URLComponents()
 		components.scheme = ArticleRenderer.imageIconScheme
@@ -755,12 +813,16 @@ private extension WebViewController {
 
 		imageDownloadTask?.cancel()
 		imageDownloadTask = Task { [weak self] in
-			guard let downloadResponse = try? await Downloader.shared.download(imageURL, userAgentStyle: .browser) else {
-				return
+			var data: Data?
+			// Only a correctly signed routed URL uses the timeline’s copy, so page content can’t claim one.
+			if imageURL.scheme?.caseInsensitiveCompare(ArticleRenderer.articleImageScheme) == .orderedSame, let timelineImageURL = ArticleImageSchemeHandler.imageURL(imageURL) {
+				data = try? await ThumbnailDownloader.shared.fullSizeImageData(url: timelineImageURL, feedName: nil, articleTitle: nil)
+			} else {
+				data = try? await Downloader.shared.download(imageURL, userAgentStyle: .browser).data
 			}
 			// A late completion must not present the viewer over a different article
 			// or a returning app.
-			guard !Task.isCancelled, let self, let data = downloadResponse.data, !data.isEmpty,
+			guard !Task.isCancelled, let self, let data, !data.isEmpty,
 				  let image = UIImage(data: data) else {
 				return
 			}
